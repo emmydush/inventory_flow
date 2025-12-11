@@ -85,8 +85,19 @@ function getCustomer($conn, $id) {
 
 function createCustomer($conn) {
     try {
-        $data = json_decode(file_get_contents('php://input'), true);
-        
+        $input = file_get_contents('php://input');
+        $data = json_decode($input, true);
+
+        if (!$data) {
+            echo json_encode(['success' => false, 'error' => 'Invalid request data']);
+            return;
+        }
+
+        if (!isset($data['name']) || empty($data['name'])) {
+            echo json_encode(['success' => false, 'error' => 'Customer name is required']);
+            return;
+        }
+
         $stmt = $conn->prepare("INSERT INTO customers (name, email, phone, address, credit_limit) 
                                 VALUES (:name, :email, :phone, :address, :credit_limit)");
         $stmt->execute([
@@ -101,14 +112,26 @@ function createCustomer($conn) {
         
         echo json_encode(['success' => true, 'id' => $result['id'], 'message' => 'Customer created successfully']);
     } catch(PDOException $e) {
+        error_log('Create customer error: ' . $e->getMessage());
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }
 
 function updateCustomer($conn) {
     try {
-        $data = json_decode(file_get_contents('php://input'), true);
-        
+        $input = file_get_contents('php://input');
+        $data = json_decode($input, true);
+
+        if (!$data) {
+            echo json_encode(['success' => false, 'error' => 'Invalid request data']);
+            return;
+        }
+
+        if (!isset($data['id']) || !isset($data['name']) || empty($data['name'])) {
+            echo json_encode(['success' => false, 'error' => 'Customer ID and name are required']);
+            return;
+        }
+
         $stmt = $conn->prepare("UPDATE customers 
                                 SET name = :name, email = :email, phone = :phone, 
                                     address = :address, credit_limit = :credit_limit, updated_at = CURRENT_TIMESTAMP
@@ -124,19 +147,27 @@ function updateCustomer($conn) {
         
         echo json_encode(['success' => true, 'message' => 'Customer updated successfully']);
     } catch(PDOException $e) {
+        error_log('Update customer error: ' . $e->getMessage());
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }
 
 function deleteCustomer($conn) {
     try {
-        $data = json_decode(file_get_contents('php://input'), true);
-        
+        $input = file_get_contents('php://input');
+        $data = json_decode($input, true);
+
+        if (!$data || !isset($data['id'])) {
+            echo json_encode(['success' => false, 'error' => 'Customer ID is required']);
+            return;
+        }
+
         $stmt = $conn->prepare("DELETE FROM customers WHERE id = :id");
         $stmt->execute([':id' => $data['id']]);
         
         echo json_encode(['success' => true, 'message' => 'Customer deleted successfully']);
     } catch(PDOException $e) {
+        error_log('Delete customer error: ' . $e->getMessage());
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }
