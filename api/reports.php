@@ -48,7 +48,7 @@ function getSummaryReport($conn) {
         $thisMonth = date('Y-m');
         
         $todaySales = $conn->query("SELECT COALESCE(SUM(total), 0) as total, COUNT(*) as count FROM sales WHERE DATE(created_at) = '$today'")->fetch();
-        $monthSales = $conn->query("SELECT COALESCE(SUM(total), 0) as total, COUNT(*) as count FROM sales WHERE TO_CHAR(created_at, 'YYYY-MM') = '$thisMonth'")->fetch();
+        $monthSales = $conn->query("SELECT COALESCE(SUM(total), 0) as total, COUNT(*) as count FROM sales WHERE DATE_FORMAT(created_at, '%Y-%m') = '$thisMonth'")->fetch();
         
         $totalProducts = $conn->query("SELECT COUNT(*) FROM products")->fetchColumn();
         $lowStockCount = $conn->query("SELECT COUNT(*) FROM products WHERE quantity <= min_stock")->fetchColumn();

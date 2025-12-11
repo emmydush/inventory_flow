@@ -106,6 +106,15 @@ function createSale($conn) {
     try {
         $data = json_decode(file_get_contents('php://input'), true);
         
+        // Validate that all products exist before proceeding
+        foreach ($data['items'] as $item) {
+            $productCheck = $conn->prepare("SELECT id FROM products WHERE id = :product_id");
+            $productCheck->execute([':product_id' => $item['product_id']]);
+            if (!$productCheck->fetch()) {
+                throw new Exception("Product with ID {$item['product_id']} does not exist");
+            }
+        }
+        
         $conn->beginTransaction();
         
         $prefixStmt = $conn->query("SELECT setting_value FROM settings WHERE setting_key = 'invoice_prefix'");
@@ -127,8 +136,8 @@ function createSale($conn) {
             ':invoice_number' => $invoiceNumber,
             ':customer_id' => $data['customer_id'] ?: null,
             ':subtotal' => $data['subtotal'],
-            ':tax' => $data['tax'] ?? 0,
-            ':discount' => $data['discount'] ?? 0,
+            ':tax' => 0,
+            ':discount' => 0,
             ':total' => $data['total'],
             ':payment_method' => $data['payment_method'] ?? 'cash',
             ':payment_status' => $paymentStatus,

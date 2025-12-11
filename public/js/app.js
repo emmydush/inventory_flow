@@ -8,8 +8,7 @@ const state = {
     cart: [],
     settings: {},
     currentPage: 'dashboard',
-    paymentMethod: 'cash',
-    taxRate: 0
+    paymentMethod: 'cash'
 };
 
 document.addEventListener('DOMContentLoaded', () => { initApp(); });
@@ -33,8 +32,6 @@ async function loadSettings() {
         const result = await response.json();
         if (result.success) {
             state.settings = result.data;
-            state.taxRate = parseFloat(state.settings.tax_rate?.value || 0);
-            document.getElementById('taxRateDisplay').textContent = state.taxRate;
             Object.keys(result.data).forEach(key => {
                 const el = document.getElementById('setting_' + key);
                 if (el) {
@@ -52,6 +49,9 @@ async function loadSettings() {
 function setupEventListeners() {
     document.querySelectorAll('.nav-item').forEach(item => { item.addEventListener('click', () => navigateTo(item.dataset.page)); });
     document.getElementById('menuToggle').addEventListener('click', toggleSidebar);
+    
+    // Add logout event listener
+    document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
     document.getElementById('addProductBtn').addEventListener('click', () => openProductModal());
     document.getElementById('closeProductModal').addEventListener('click', closeProductModal);
@@ -98,8 +98,11 @@ function setupEventListeners() {
     document.getElementById('posProductSearch').addEventListener('input', debounce(loadPosProducts, 300));
     document.getElementById('posCategoryFilter').addEventListener('change', loadPosProducts);
     document.getElementById('clearCartBtn').addEventListener('click', clearCart);
-    document.getElementById('cartDiscount').addEventListener('input', updateCartTotals);
     document.getElementById('completeSaleBtn').addEventListener('click', completeSale);
+    
+    // Barcode scanner functionality
+    document.getElementById('toggleBarcodeScanner').addEventListener('click', toggleBarcodeScanner);
+    document.getElementById('barcodeScannerInput').addEventListener('keypress', handleBarcodeInput);
     document.querySelectorAll('.payment-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.payment-btn').forEach(b => b.classList.remove('active'));
@@ -112,10 +115,25 @@ function setupEventListeners() {
     document.getElementById('creditStatusFilter').addEventListener('change', loadCreditSales);
 
     document.querySelectorAll('.report-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            document.querySelectorAll('.report-tab').forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            loadReport(tab.dataset.report);
+        // Remove any existing event listeners to prevent duplication
+        const clone = tab.cloneNode(true);
+        tab.parentNode.replaceChild(clone, tab);
+        
+        // Add new event listener
+        clone.addEventListener('click', (e) => {
+            e.preventDefault();
+            
+            // Remove active class from all tabs
+            document.querySelectorAll('.report-tab').forEach(t => {
+                t.classList.remove('active');
+            });
+            
+            // Add active class to clicked tab
+            clone.classList.add('active');
+            
+            // Load the report
+            const reportType = clone.dataset.report;
+            loadReport(reportType);
         });
     });
 
@@ -144,7 +162,7 @@ function navigateTo(page) {
     document.getElementById('pageTitle').textContent = titles[page] || 'Dashboard';
     state.currentPage = page;
     if (page === 'dashboard') loadDashboard();
-    else if (page === 'pos') { loadPosProducts(); updateCartDisplay(); }
+    else if (page === 'pos') { loadPosProducts(); updateCartDisplay(); initializeBarcodeScanner(); }
     else if (page === 'products') loadProducts();
     else if (page === 'categories') loadCategories();
     else if (page === 'customers') loadCustomers();
@@ -174,13 +192,20 @@ async function loadDashboard() {
             document.getElementById('totalCustomers').textContent = d.total_customers;
             document.getElementById('pendingCredits').textContent = '$' + formatNumber(d.pending_credits.total);
         }
+        
         const dashResponse = await fetch(`${API_BASE}/dashboard.php`);
         const dashResult = await dashResponse.json();
         if (dashResult.success) {
             renderLowStockList(dashResult.data.low_stock_items);
             renderRecentActivity(dashResult.data.recent_transactions);
         }
-    } catch (e) { console.error('Dashboard error:', e); showToast('Error loading dashboard', 'error'); }
+        
+        // Load chart data
+        await loadChartData();
+    } catch (e) { 
+        console.error('Dashboard error:', e); 
+        showToast('Error loading dashboard', 'error'); 
+    }
 }
 
 function renderLowStockList(items) {
@@ -223,9 +248,29 @@ function updateCategorySelects() {
 }
 
 function renderCategories() {
-    const container = document.getElementById('categoriesGrid');
-    if (state.categories.length === 0) { container.innerHTML = '<p class="empty-state">No categories found</p>'; return; }
-    container.innerHTML = state.categories.map(cat => `<div class="category-card"><div class="category-header"><h3>${escapeHtml(cat.name)}</h3><button class="btn btn-icon btn-secondary" onclick="deleteCategory(${cat.id})" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></div><p class="category-description">${escapeHtml(cat.description || 'No description')}</p><div class="category-count"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/></svg>${cat.product_count} products</div></div>`).join('');
+    const tbody = document.getElementById('categoriesBody');
+    if (state.categories.length === 0) { 
+        tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No categories found</td></tr>'; 
+        return; 
+    }
+    
+    tbody.innerHTML = state.categories.map(cat => `
+        <tr>
+            <td>${escapeHtml(cat.name)}</td>
+            <td>${escapeHtml(cat.description || 'No description')}</td>
+            <td>${cat.product_count} products</td>
+            <td>
+                <div class="action-buttons">
+                    <button class="btn btn-icon btn-secondary" onclick="deleteCategory(${cat.id})" title="Delete">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
 }
 
 async function loadProducts() {
@@ -242,11 +287,47 @@ async function loadProducts() {
 }
 
 function renderProducts() {
-    const container = document.getElementById('productsGrid');
-    if (state.products.length === 0) { container.innerHTML = '<p class="empty-state">No products found. Add your first product!</p>'; return; }
-    container.innerHTML = state.products.map(product => {
+    const tbody = document.getElementById('productsBody');
+    if (state.products.length === 0) { 
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No products found. Add your first product!</td></tr>'; 
+        return; 
+    }
+    
+    tbody.innerHTML = state.products.map(product => {
         const stockStatus = getStockStatus(product.quantity, product.min_stock);
-        return `<div class="product-card"><div class="product-header"><div class="product-title"><h3>${escapeHtml(product.name)}</h3><span class="sku">SKU: ${escapeHtml(product.sku)}</span></div><span class="product-category">${product.category_name || 'Uncategorized'}</span></div><div class="product-details"><div class="product-detail"><label>Price</label><span>$${formatNumber(product.price)}</span></div><div class="product-detail"><label>Quantity</label><div class="stock-status"><span class="stock-indicator ${stockStatus.class}"></span><span>${product.quantity}</span></div></div></div><div class="product-actions"><button class="btn btn-secondary btn-sm" onclick="openStockModal(${product.id}, '${escapeHtml(product.name)}', ${product.quantity})">Adjust</button><button class="btn btn-secondary btn-sm" onclick="editProduct(${product.id})">Edit</button><button class="btn btn-icon btn-secondary btn-sm" onclick="deleteProduct(${product.id})" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></div></div>`;
+        const stockText = product.quantity <= 0 ? 'Out of Stock' : 
+                         product.quantity <= product.min_stock ? 'Low Stock' : 'In Stock';
+        
+        return `
+            <tr>
+                <td>
+                    <div class="product-info">
+                        <div class="product-name">${escapeHtml(product.name)}</div>
+                    </div>
+                </td>
+                <td>${escapeHtml(product.sku)}</td>
+                <td>${product.category_name || 'Uncategorized'}</td>
+                <td>$${formatNumber(product.price)}</td>
+                <td>${product.quantity}</td>
+                <td>
+                    <span class="status-badge ${stockStatus.class}">
+                        ${stockText}
+                    </span>
+                </td>
+                <td>
+                    <div class="action-buttons">
+                        <button class="btn btn-secondary btn-sm" onclick="openStockModal(${product.id}, '${escapeHtml(product.name)}', ${product.quantity})">Adjust</button>
+                        <button class="btn btn-secondary btn-sm" onclick="editProduct(${product.id})">Edit</button>
+                        <button class="btn btn-icon btn-secondary btn-sm" onclick="deleteProduct(${product.id})" title="Delete">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
     }).join('');
 }
 
@@ -343,43 +424,159 @@ function updateCartQty(index, change) {
 function removeFromCart(index) { state.cart.splice(index, 1); updateCartDisplay(); }
 function clearCart() { state.cart = []; updateCartDisplay(); }
 
+// Barcode scanner functions
+let barcodeScannerMode = false;
+
+function toggleBarcodeScanner() {
+    barcodeScannerMode = !barcodeScannerMode;
+    const searchInput = document.getElementById('posProductSearch');
+    const barcodeInput = document.getElementById('barcodeScannerInput');
+    const toggleButton = document.getElementById('toggleBarcodeScanner');
+    const scannerIndicator = document.getElementById('scannerIndicator');
+    
+    if (barcodeScannerMode) {
+        searchInput.style.display = 'none';
+        barcodeInput.style.display = 'block';
+        scannerIndicator.style.display = 'block';
+        barcodeInput.focus();
+        toggleButton.textContent = 'Disable Barcode Scanner';
+        toggleButton.classList.add('active');
+    } else {
+        searchInput.style.display = 'block';
+        barcodeInput.style.display = 'none';
+        scannerIndicator.style.display = 'none';
+        searchInput.focus();
+        toggleButton.textContent = 'Enable Barcode Scanner';
+        toggleButton.classList.remove('active');
+    }
+}
+
+async function handleBarcodeInput(event) {
+    // Enter key triggers the scan
+    if (event.key === 'Enter') {
+        const barcode = event.target.value.trim();
+        if (barcode) {
+            try {
+                // Search for product by SKU (barcode)
+                const response = await fetch(`${API_BASE}/products.php?search=${encodeURIComponent(barcode)}&exact=true`);
+                const result = await response.json();
+                
+                if (result.success && result.data.length > 0) {
+                    // Find exact match by SKU
+                    const product = result.data.find(p => p.sku === barcode);
+                    
+                    if (product) {
+                        addToCart(product.id, product.name, product.price, product.quantity);
+                        showToast(`Added ${product.name} to cart`, 'success');
+                    } else {
+                        showToast('Product not found', 'error');
+                    }
+                } else {
+                    showToast('Product not found', 'error');
+                }
+            } catch (e) {
+                console.error('Barcode scan error:', e);
+                showToast('Error scanning product', 'error');
+            }
+        }
+        // Clear the input
+        event.target.value = '';
+    }
+}
+
+function initializeBarcodeScanner() {
+    // Reset barcode scanner mode when switching to POS page
+    barcodeScannerMode = false;
+    const searchInput = document.getElementById('posProductSearch');
+    const barcodeInput = document.getElementById('barcodeScannerInput');
+    const toggleButton = document.getElementById('toggleBarcodeScanner');
+    const scannerIndicator = document.getElementById('scannerIndicator');
+    
+    searchInput.style.display = 'block';
+    barcodeInput.style.display = 'none';
+    scannerIndicator.style.display = 'none';
+    toggleButton.textContent = 'Enable Barcode Scanner';
+    toggleButton.classList.remove('active');
+}
+
 function updateCartTotals() {
     const subtotal = state.cart.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
-    const tax = subtotal * (state.taxRate / 100);
-    const discount = parseFloat(document.getElementById('cartDiscount').value) || 0;
-    const total = subtotal + tax - discount;
+    const total = subtotal;
     document.getElementById('cartSubtotal').textContent = '$' + formatNumber(subtotal);
-    document.getElementById('cartTax').textContent = '$' + formatNumber(tax);
-    document.getElementById('cartTotal').textContent = '$' + formatNumber(Math.max(0, total));
+    document.getElementById('cartTotal').textContent = '$' + formatNumber(total);
 }
 
 async function completeSale() {
-    if (state.cart.length === 0) { showToast('Cart is empty', 'warning'); return; }
+    if (state.cart.length === 0) { 
+        showToast('Cart is empty', 'warning'); 
+        return; 
+    }
+    
+    // Check if all products in cart still exist
+    try {
+        const productChecks = state.cart.map(async (item) => {
+            const response = await fetch(`${API_BASE}/products.php?id=${item.product_id}`);
+            const result = await response.json();
+            return result.success && result.data;
+        });
+        
+        const productResults = await Promise.all(productChecks);
+        const invalidProducts = productResults.filter(result => !result);
+        
+        if (invalidProducts.length > 0) {
+            showToast('Some products in your cart are no longer available. Please refresh your cart.', 'error');
+            loadPosProducts(); // Refresh product list
+            return;
+        }
+    } catch (e) {
+        console.error('Product validation error:', e);
+        showToast('Error validating products in cart', 'error');
+        return;
+    }
+    
     const subtotal = state.cart.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
-    const tax = subtotal * (state.taxRate / 100);
-    const discount = parseFloat(document.getElementById('cartDiscount').value) || 0;
-    const total = subtotal + tax - discount;
+    const total = subtotal;
     const customerId = document.getElementById('posCustomer').value;
-    if (state.paymentMethod === 'credit' && !customerId) { showToast('Please select a customer for credit sales', 'warning'); return; }
+    
+    if (state.paymentMethod === 'credit' && !customerId) { 
+        showToast('Please select a customer for credit sales', 'warning'); 
+        return; 
+    }
+    
     const saleData = {
         customer_id: customerId || null,
         subtotal: subtotal,
-        tax: tax,
-        discount: discount,
-        total: Math.max(0, total),
+        total: total,
         payment_method: state.paymentMethod,
-        items: state.cart.map(item => ({ product_id: item.product_id, product_name: item.product_name, quantity: item.quantity, unit_price: item.unit_price, total: item.unit_price * item.quantity }))
+        items: state.cart.map(item => ({ 
+            product_id: item.product_id, 
+            product_name: item.product_name, 
+            quantity: item.quantity, 
+            unit_price: item.unit_price, 
+            total: item.unit_price * item.quantity 
+        }))
     };
+    
     try {
-        const response = await fetch(`${API_BASE}/sales.php`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(saleData) });
+        const response = await fetch(`${API_BASE}/sales.php`, { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(saleData) 
+        });
+        
         const result = await response.json();
+        
         if (result.success) {
             showToast(`Sale completed! Invoice: ${result.invoice_number}`, 'success');
             clearCart();
-            document.getElementById('cartDiscount').value = 0;
             loadPosProducts();
-        } else showToast(result.error || 'Error completing sale', 'error');
-    } catch (e) { console.error('Sale error:', e); showToast('Error completing sale', 'error'); }
+        } else {
+            showToast(result.error || 'Error completing sale', 'error');
+        }
+    } catch (e) { 
+        console.error('Sale error:', e); 
+        showToast('Error completing sale', 'error'); 
+    }
 }
 
 async function loadSales() {
@@ -409,7 +606,7 @@ async function viewSale(id) {
         const result = await response.json();
         if (result.success) {
             const s = result.data;
-            document.getElementById('saleDetails').innerHTML = `<div class="sale-info"><p><strong>Invoice:</strong> ${s.invoice_number}</p><p><strong>Customer:</strong> ${s.customer_name || 'Walk-in'}</p><p><strong>Date:</strong> ${formatDate(s.created_at)}</p><p><strong>Payment:</strong> ${s.payment_method} (${s.payment_status})</p></div><table class="data-table"><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody>${s.items.map(i => `<tr><td>${escapeHtml(i.product_name)}</td><td>${i.quantity}</td><td>$${formatNumber(i.unit_price)}</td><td>$${formatNumber(i.total)}</td></tr>`).join('')}</tbody></table><div class="sale-totals" style="margin-top:1rem"><p><strong>Subtotal:</strong> $${formatNumber(s.subtotal)}</p><p><strong>Tax:</strong> $${formatNumber(s.tax)}</p><p><strong>Discount:</strong> $${formatNumber(s.discount)}</p><p><strong>Total:</strong> $${formatNumber(s.total)}</p></div>`;
+            document.getElementById('saleDetails').innerHTML = `<div class="sale-info"><p><strong>Invoice:</strong> ${s.invoice_number}</p><p><strong>Customer:</strong> ${s.customer_name || 'Walk-in'}</p><p><strong>Date:</strong> ${formatDate(s.created_at)}</p><p><strong>Payment:</strong> ${s.payment_method} (${s.payment_status})</p></div><table class="data-table"><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody>${s.items.map(i => `<tr><td>${escapeHtml(i.product_name)}</td><td>${i.quantity}</td><td>$${formatNumber(i.unit_price)}</td><td>$${formatNumber(i.total)}</td></tr>`).join('')}</tbody></table><div class="sale-totals" style="margin-top:1rem"><p><strong>Subtotal:</strong> $${formatNumber(s.subtotal)}</p><p><strong>Total:</strong> $${formatNumber(s.total)}</p></div>`;
             document.getElementById('saleModal').classList.add('active');
         }
     } catch (e) { console.error('View sale error:', e); }
@@ -452,18 +649,27 @@ async function handlePaymentSubmit(e) {
 }
 
 async function loadReport(type) {
+    console.log('Loading report type:', type); // Debug log
     const container = document.getElementById('reportContent');
     container.innerHTML = '<p class="empty-state">Loading...</p>';
     try {
         const response = await fetch(`${API_BASE}/reports.php?type=${type}`);
+        console.log('Report API response status:', response.status); // Debug log
         const result = await response.json();
+        console.log('Report API result:', result); // Debug log
         if (result.success) {
             if (type === 'summary') renderSummaryReport(result.data);
             else if (type === 'sales') renderSalesReport(result.data);
             else if (type === 'inventory') renderInventoryReport(result.data);
             else if (type === 'credit') renderCreditReport(result.data);
+        } else {
+            console.error('Report API error:', result.error);
+            container.innerHTML = '<p class="empty-state">Error loading report: ' + (result.error || 'Unknown error') + '</p>';
         }
-    } catch (e) { console.error('Report error:', e); container.innerHTML = '<p class="empty-state">Error loading report</p>'; }
+    } catch (e) { 
+        console.error('Report error:', e); 
+        container.innerHTML = '<p class="empty-state">Error loading report: ' + e.message + '</p>'; 
+    }
 }
 
 function renderSummaryReport(data) {
@@ -529,14 +735,35 @@ async function editProduct(id) {
 async function handleProductSubmit(e) {
     e.preventDefault();
     const id = document.getElementById('productId').value;
-    const data = { sku: document.getElementById('productSku').value, name: document.getElementById('productName').value, description: document.getElementById('productDescription').value, category_id: document.getElementById('productCategory').value, price: parseFloat(document.getElementById('productPrice').value) || 0, cost_price: parseFloat(document.getElementById('productCostPrice').value) || 0, quantity: parseInt(document.getElementById('productQuantity').value) || 0, min_stock: parseInt(document.getElementById('productMinStock').value) || 10 };
+    const data = { 
+        sku: document.getElementById('productSku').value, 
+        name: document.getElementById('productName').value, 
+        description: document.getElementById('productDescription').value, 
+        category_id: document.getElementById('productCategory').value || null,
+        price: parseFloat(document.getElementById('productPrice').value) || 0, 
+        cost_price: parseFloat(document.getElementById('productCostPrice').value) || 0, 
+        quantity: parseInt(document.getElementById('productQuantity').value) || 0, 
+        min_stock: parseInt(document.getElementById('productMinStock').value) || 10 
+    };
     if (id) data.id = id;
     try {
-        const response = await fetch(`${API_BASE}/products.php`, { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        const response = await fetch(`${API_BASE}/products.php`, { 
+            method: id ? 'PUT' : 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(data) 
+        });
         const result = await response.json();
-        if (result.success) { showToast(result.message, 'success'); closeProductModal(); loadProducts(); if (state.currentPage === 'dashboard') loadDashboard(); }
+        if (result.success) { 
+            showToast(result.message, 'success'); 
+            closeProductModal(); 
+            loadProducts(); 
+            if (state.currentPage === 'dashboard') loadDashboard(); 
+        }
         else showToast(result.error || 'Error saving product', 'error');
-    } catch (e) { console.error('Save product error:', e); showToast('Error saving product', 'error'); }
+    } catch (e) { 
+        console.error('Save product error:', e); 
+        showToast('Error saving product', 'error'); 
+    }
 }
 
 async function deleteProduct(id) {
@@ -554,13 +781,31 @@ function closeCategoryModal() { document.getElementById('categoryModal').classLi
 
 async function handleCategorySubmit(e) {
     e.preventDefault();
-    const data = { name: document.getElementById('categoryName').value, description: document.getElementById('categoryDescription').value };
+    const data = { 
+        name: document.getElementById('categoryName').value, 
+        description: document.getElementById('categoryDescription').value 
+    };
     try {
-        const response = await fetch(`${API_BASE}/categories.php`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        const response = await fetch(`${API_BASE}/categories.php`, { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(data) 
+        });
         const result = await response.json();
-        if (result.success) { showToast('Category created successfully', 'success'); closeCategoryModal(); loadCategories(); }
+        if (result.success) { 
+            showToast('Category created successfully', 'success'); 
+            closeCategoryModal(); 
+            loadCategories(); 
+            // Refresh products page if needed
+            if (state.currentPage === 'products') {
+                loadProducts();
+            }
+        }
         else showToast(result.error || 'Error creating category', 'error');
-    } catch (e) { console.error('Create category error:', e); showToast('Error creating category', 'error'); }
+    } catch (e) { 
+        console.error('Create category error:', e); 
+        showToast('Error creating category', 'error'); 
+    }
 }
 
 async function deleteCategory(id) {
@@ -624,14 +869,31 @@ async function editCustomer(id) {
 async function handleCustomerSubmit(e) {
     e.preventDefault();
     const id = document.getElementById('customerId').value;
-    const data = { name: document.getElementById('customerName').value, email: document.getElementById('customerEmail').value, phone: document.getElementById('customerPhone').value, address: document.getElementById('customerAddress').value, credit_limit: parseFloat(document.getElementById('customerCreditLimit').value) || 0 };
+    const data = { 
+        name: document.getElementById('customerName').value, 
+        email: document.getElementById('customerEmail').value, 
+        phone: document.getElementById('customerPhone').value, 
+        address: document.getElementById('customerAddress').value, 
+        credit_limit: parseFloat(document.getElementById('customerCreditLimit').value) || 0 
+    };
     if (id) data.id = id;
     try {
-        const response = await fetch(`${API_BASE}/customers.php`, { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        const response = await fetch(`${API_BASE}/customers.php`, { 
+            method: id ? 'PUT' : 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(data) 
+        });
         const result = await response.json();
-        if (result.success) { showToast(result.message, 'success'); closeCustomerModal(); loadCustomers(); }
+        if (result.success) { 
+            showToast(result.message, 'success'); 
+            closeCustomerModal(); 
+            loadCustomers(); 
+        }
         else showToast(result.error || 'Error saving customer', 'error');
-    } catch (e) { console.error('Save customer error:', e); showToast('Error saving customer', 'error'); }
+    } catch (e) { 
+        console.error('Save customer error:', e); 
+        showToast('Error saving customer', 'error'); 
+    }
 }
 
 async function deleteCustomer(id) {
@@ -675,14 +937,32 @@ async function editSupplier(id) {
 async function handleSupplierSubmit(e) {
     e.preventDefault();
     const id = document.getElementById('supplierId').value;
-    const data = { name: document.getElementById('supplierName').value, contact_person: document.getElementById('supplierContact').value, phone: document.getElementById('supplierPhone').value, email: document.getElementById('supplierEmail').value, address: document.getElementById('supplierAddress').value, notes: document.getElementById('supplierNotes').value };
+    const data = { 
+        name: document.getElementById('supplierName').value, 
+        contact_person: document.getElementById('supplierContact').value, 
+        phone: document.getElementById('supplierPhone').value, 
+        email: document.getElementById('supplierEmail').value, 
+        address: document.getElementById('supplierAddress').value, 
+        notes: document.getElementById('supplierNotes').value 
+    };
     if (id) data.id = id;
     try {
-        const response = await fetch(`${API_BASE}/suppliers.php`, { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        const response = await fetch(`${API_BASE}/suppliers.php`, { 
+            method: id ? 'PUT' : 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(data) 
+        });
         const result = await response.json();
-        if (result.success) { showToast(result.message, 'success'); closeSupplierModal(); loadSuppliers(); }
+        if (result.success) { 
+            showToast(result.message, 'success'); 
+            closeSupplierModal(); 
+            loadSuppliers(); 
+        }
         else showToast(result.error || 'Error saving supplier', 'error');
-    } catch (e) { console.error('Save supplier error:', e); showToast('Error saving supplier', 'error'); }
+    } catch (e) { 
+        console.error('Save supplier error:', e); 
+        showToast('Error saving supplier', 'error'); 
+    }
 }
 
 async function deleteSupplier(id) {
@@ -698,7 +978,7 @@ async function deleteSupplier(id) {
 async function handleSettingsSubmit(e) {
     e.preventDefault();
     const data = {};
-    ['company_name', 'company_address', 'company_phone', 'company_email', 'tax_rate', 'currency_symbol', 'low_stock_threshold', 'invoice_prefix'].forEach(key => {
+    ['company_name', 'company_address', 'company_phone', 'company_email', 'currency_symbol', 'low_stock_threshold', 'invoice_prefix'].forEach(key => {
         const el = document.getElementById('setting_' + key);
         if (el) data[key] = el.value;
     });
@@ -734,6 +1014,11 @@ async function handleAdvancedSettingsSubmit(e) {
     } catch (e) { console.error('Save advanced settings error:', e); showToast('Error saving settings', 'error'); }
 }
 
+async function handleLogout() {
+    // Since we removed the authentication system, we'll just redirect to home
+    window.location.href = '/';
+}
+
 function handleGlobalSearch(e) {
     const query = e.target.value.trim();
     if (query.length >= 2) { navigateTo('products'); document.getElementById('productSearch').value = query; loadProducts(); }
@@ -752,3 +1037,203 @@ function formatNumber(num) { return parseFloat(num || 0).toLocaleString('en-US',
 function formatDate(dateString) { const date = new Date(dateString); return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
 function escapeHtml(text) { if (!text) return ''; const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
 function debounce(func, wait) { let timeout; return function executedFunction(...args) { const later = () => { clearTimeout(timeout); func(...args); }; clearTimeout(timeout); timeout = setTimeout(later, wait); }; }
+
+async function loadChartData() {
+    try {
+        // Load sales trend data
+        const salesResponse = await fetch(`${API_BASE}/reports.php?type=sales&date_from=${getLastNDays(7)}&date_to=${getCurrentDate()}`);
+        const salesResult = await salesResponse.json();
+        
+        if (salesResult.success) {
+            renderSalesChart(salesResult.data.daily);
+        }
+        
+        // Load top products data
+        const topProductsResponse = await fetch(`${API_BASE}/reports.php?type=top_products&limit=5`);
+        const topProductsResult = await topProductsResponse.json();
+        
+        if (topProductsResult.success) {
+            renderTopProductsChart(topProductsResult.data);
+        }
+        
+        // Load inventory by category data
+        const inventoryResponse = await fetch(`${API_BASE}/reports.php?type=inventory`);
+        const inventoryResult = await inventoryResponse.json();
+        
+        if (inventoryResult.success) {
+            renderCategoryChart(inventoryResult.data.by_category);
+        }
+    } catch (e) {
+        console.error('Chart data error:', e);
+    }
+}
+
+function renderSalesChart(data) {
+    if (!data || data.length === 0) {
+        document.getElementById('salesPoints').innerHTML = '<p class="empty-state">No sales data available</p>';
+        return;
+    }
+    
+    // Sort data by date
+    data.sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    // Get last 7 days
+    const last7Days = data.slice(-7);
+    
+    // Find max value for scaling
+    const maxValue = Math.max(...last7Days.map(d => d.total_sales));
+    
+    // Render points
+    const pointsContainer = document.getElementById('salesPoints');
+    const pathElement = document.getElementById('salesPath');
+    
+    pointsContainer.innerHTML = '';
+    
+    const points = [];
+    const pointElements = [];
+    
+    last7Days.forEach((day, index) => {
+        const x = (index / (last7Days.length - 1)) * 100;
+        const y = 100 - (day.total_sales / maxValue) * 80; // Leave some margin at top
+        
+        const point = document.createElement('div');
+        point.className = 'line-point';
+        point.style.left = `${x}%`;
+        point.style.top = `${y}%`;
+        point.title = `${day.date}: $${formatNumber(day.total_sales)}`;
+        
+        pointsContainer.appendChild(point);
+        points.push({x: x, y: y});
+        pointElements.push(point);
+    });
+    
+    // Draw line path
+    if (points.length > 1) {
+        let pathData = `M ${points[0].x} ${points[0].y}`;
+        for (let i = 1; i < points.length; i++) {
+            pathData += ` L ${points[i].x} ${points[i].y}`;
+        }
+        pathElement.setAttribute('viewBox', '0 0 100 100');
+        pathElement.setAttribute('preserveAspectRatio', 'none');
+        pathElement.innerHTML = `<path d="${pathData}" vector-effect="non-scaling-stroke"></path>`;
+    }
+}
+
+function renderTopProductsChart(data) {
+    const container = document.getElementById('topProductsChart');
+    
+    if (!data || data.length === 0) {
+        container.innerHTML = '<p class="empty-state">No product data available</p>';
+        return;
+    }
+    
+    // Sort by total sold and take top 5
+    const topProducts = data.slice(0, 5);
+    
+    // Find max value for scaling
+    const maxValue = Math.max(...topProducts.map(p => p.total_sold));
+    
+    container.innerHTML = '';
+    
+    topProducts.forEach(product => {
+        const heightPercent = (product.total_sold / maxValue) * 80 + 10; // Minimum 10% height
+        
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        bar.style.height = `${heightPercent}%`;
+        bar.title = `${product.name}: ${product.total_sold} units sold`;
+        
+        const value = document.createElement('div');
+        value.className = 'bar-value';
+        value.textContent = product.total_sold;
+        
+        const label = document.createElement('div');
+        label.className = 'bar-label';
+        label.textContent = product.name.length > 10 ? product.name.substring(0, 10) + '...' : product.name;
+        
+        bar.appendChild(value);
+        bar.appendChild(label);
+        container.appendChild(bar);
+    });
+}
+
+function renderCategoryChart(data) {
+    const pieContainer = document.getElementById('categoryChart');
+    const legendContainer = document.getElementById('categoryLegend');
+    const totalElement = document.getElementById('categoryTotal');
+    
+    if (!data || data.length === 0) {
+        pieContainer.innerHTML = '<p class="empty-state">No category data available</p>';
+        legendContainer.innerHTML = '';
+        totalElement.textContent = '0 Items';
+        return;
+    }
+    
+    // Calculate total items
+    const totalItems = data.reduce((sum, category) => sum + parseInt(category.total_quantity), 0);
+    totalElement.textContent = `${totalItems} Items`;
+    
+    // Filter out categories with 0 items and sort by value
+    const categoriesWithData = data.filter(c => parseInt(c.total_quantity) > 0)
+                                  .sort((a, b) => parseInt(b.total_quantity) - parseInt(a.total_quantity));
+    
+    if (categoriesWithData.length === 0) {
+        pieContainer.innerHTML = '<p class="empty-state">No inventory data available</p>';
+        legendContainer.innerHTML = '';
+        return;
+    }
+    
+    // Clear containers
+    pieContainer.innerHTML = '';
+    legendContainer.innerHTML = '';
+    pieContainer.appendChild(totalElement);
+    
+    // Define colors
+    const colors = ['#6366f1', '#818cf8', '#4f46e5', '#a5b4fc', '#c7d2fe'];
+    
+    // Calculate angles for pie segments
+    let currentAngle = 0;
+    
+    categoriesWithData.forEach((category, index) => {
+        const percentage = (parseInt(category.total_quantity) / totalItems) * 100;
+        const angle = (percentage / 100) * 360;
+        
+        // Create pie segment
+        const segment = document.createElement('div');
+        segment.className = 'pie-segment';
+        segment.style.backgroundColor = colors[index % colors.length];
+        segment.style.transform = `rotate(${currentAngle}deg)`;
+        segment.style.clipPath = `polygon(50% 50%, 50% 0%, ${100 - 50 * Math.cos((angle * Math.PI) / 180)}% ${50 - 50 * Math.sin((angle * Math.PI) / 180)}%)`;
+        segment.title = `${category.name}: ${category.total_quantity} items (${percentage.toFixed(1)}%)`;
+        
+        pieContainer.appendChild(segment);
+        
+        // Create legend item
+        const legendItem = document.createElement('div');
+        legendItem.className = 'legend-item';
+        
+        const legendColor = document.createElement('div');
+        legendColor.className = 'legend-color';
+        legendColor.style.backgroundColor = colors[index % colors.length];
+        
+        const legendText = document.createElement('span');
+        legendText.textContent = `${category.name}: ${category.total_quantity} (${percentage.toFixed(1)}%)`;
+        
+        legendItem.appendChild(legendColor);
+        legendItem.appendChild(legendText);
+        legendContainer.appendChild(legendItem);
+        
+        currentAngle += angle;
+    });
+}
+
+// Helper functions
+function getLastNDays(n) {
+    const date = new Date();
+    date.setDate(date.getDate() - n);
+    return date.toISOString().split('T')[0];
+}
+
+function getCurrentDate() {
+    return new Date().toISOString().split('T')[0];
+}

@@ -223,9 +223,29 @@ function updateCategorySelects() {
 }
 
 function renderCategories() {
-    const container = document.getElementById('categoriesGrid');
-    if (state.categories.length === 0) { container.innerHTML = '<p class="empty-state">No categories found</p>'; return; }
-    container.innerHTML = state.categories.map(cat => `<div class="category-card"><div class="category-header"><h3>${escapeHtml(cat.name)}</h3><button class="btn btn-icon btn-secondary" onclick="deleteCategory(${cat.id})" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></div><p class="category-description">${escapeHtml(cat.description || 'No description')}</p><div class="category-count"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/></svg>${cat.product_count} products</div></div>`).join('');
+    const tbody = document.getElementById('categoriesBody');
+    if (state.categories.length === 0) { 
+        tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No categories found</td></tr>'; 
+        return; 
+    }
+    
+    tbody.innerHTML = state.categories.map(cat => `
+        <tr>
+            <td>${escapeHtml(cat.name)}</td>
+            <td>${escapeHtml(cat.description || 'No description')}</td>
+            <td>${cat.product_count} products</td>
+            <td>
+                <div class="action-buttons">
+                    <button class="btn btn-icon btn-secondary" onclick="deleteCategory(${cat.id})" title="Delete">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
 }
 
 async function loadProducts() {
@@ -242,11 +262,47 @@ async function loadProducts() {
 }
 
 function renderProducts() {
-    const container = document.getElementById('productsGrid');
-    if (state.products.length === 0) { container.innerHTML = '<p class="empty-state">No products found. Add your first product!</p>'; return; }
-    container.innerHTML = state.products.map(product => {
+    const tbody = document.getElementById('productsBody');
+    if (state.products.length === 0) { 
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No products found. Add your first product!</td></tr>'; 
+        return; 
+    }
+    
+    tbody.innerHTML = state.products.map(product => {
         const stockStatus = getStockStatus(product.quantity, product.min_stock);
-        return `<div class="product-card"><div class="product-header"><div class="product-title"><h3>${escapeHtml(product.name)}</h3><span class="sku">SKU: ${escapeHtml(product.sku)}</span></div><span class="product-category">${product.category_name || 'Uncategorized'}</span></div><div class="product-details"><div class="product-detail"><label>Price</label><span>$${formatNumber(product.price)}</span></div><div class="product-detail"><label>Quantity</label><div class="stock-status"><span class="stock-indicator ${stockStatus.class}"></span><span>${product.quantity}</span></div></div></div><div class="product-actions"><button class="btn btn-secondary btn-sm" onclick="openStockModal(${product.id}, '${escapeHtml(product.name)}', ${product.quantity})">Adjust</button><button class="btn btn-secondary btn-sm" onclick="editProduct(${product.id})">Edit</button><button class="btn btn-icon btn-secondary btn-sm" onclick="deleteProduct(${product.id})" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></div></div>`;
+        const stockText = product.quantity <= 0 ? 'Out of Stock' : 
+                         product.quantity <= product.min_stock ? 'Low Stock' : 'In Stock';
+        
+        return `
+            <tr>
+                <td>
+                    <div class="product-info">
+                        <div class="product-name">${escapeHtml(product.name)}</div>
+                    </div>
+                </td>
+                <td>${escapeHtml(product.sku)}</td>
+                <td>${product.category_name || 'Uncategorized'}</td>
+                <td>$${formatNumber(product.price)}</td>
+                <td>${product.quantity}</td>
+                <td>
+                    <span class="status-badge ${stockStatus.class}">
+                        ${stockText}
+                    </span>
+                </td>
+                <td>
+                    <div class="action-buttons">
+                        <button class="btn btn-secondary btn-sm" onclick="openStockModal(${product.id}, '${escapeHtml(product.name)}', ${product.quantity})">Adjust</button>
+                        <button class="btn btn-secondary btn-sm" onclick="editProduct(${product.id})">Edit</button>
+                        <button class="btn btn-icon btn-secondary btn-sm" onclick="deleteProduct(${product.id})" title="Delete">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
     }).join('');
 }
 

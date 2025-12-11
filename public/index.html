@@ -87,7 +87,7 @@
                 </li>
                 <li class="nav-item" data-page="settings">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
                     </svg>
                     <span>Settings</span>
                 </li>
@@ -124,6 +124,50 @@
                         <div class="stat-card"><div class="stat-icon cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div><div class="stat-info"><span class="stat-value" id="totalCustomers">0</span><span class="stat-label">Customers</span></div></div>
                         <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></div><div class="stat-info"><span class="stat-value" id="pendingCredits">$0</span><span class="stat-label">Pending Credits</span></div></div>
                     </div>
+                    
+                    <!-- Charts Section -->
+                    <div class="chart-container">
+                        <div class="chart-header">
+                            <h3>Sales Trend (Last 7 Days)</h3>
+                        </div>
+                        <div class="chart-content">
+                            <div class="line-chart" id="salesChart">
+                                <div class="grid-lines">
+                                    <div class="grid-line"></div>
+                                    <div class="grid-line"></div>
+                                    <div class="grid-line"></div>
+                                    <div class="grid-line"></div>
+                                    <div class="grid-line"></div>
+                                </div>
+                                <div class="line-points" id="salesPoints"></div>
+                                <svg class="line-path" id="salesPath"></svg>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="dashboard-grid">
+                        <div class="chart-container">
+                            <div class="chart-header">
+                                <h3>Top Selling Products</h3>
+                            </div>
+                            <div class="chart-content">
+                                <div class="bar-chart" id="topProductsChart"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="chart-container">
+                            <div class="chart-header">
+                                <h3>Inventory by Category</h3>
+                            </div>
+                            <div class="chart-content">
+                                <div class="pie-chart" id="categoryChart">
+                                    <div class="pie-center" id="categoryTotal">0 Items</div>
+                                </div>
+                                <div class="chart-legend" id="categoryLegend"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="dashboard-grid">
                         <div class="card"><div class="card-header"><h3>Low Stock Alerts</h3><span class="badge warning" id="lowStockBadge">0</span></div><div class="card-body"><div class="alert-list" id="lowStockList"><p class="empty-state">No low stock items</p></div></div></div>
                         <div class="card"><div class="card-header"><h3>Recent Activity</h3></div><div class="card-body"><div class="activity-list" id="recentActivity"><p class="empty-state">No recent activity</p></div></div></div>
@@ -136,6 +180,9 @@
                         <div class="pos-products">
                             <div class="pos-search">
                                 <input type="text" id="posProductSearch" class="text-input" placeholder="Search products...">
+                                <input type="text" id="barcodeScannerInput" class="text-input" placeholder="Scan barcode..." style="display:none;">
+                                <button id="toggleBarcodeScanner" class="btn btn-secondary">Toggle Barcode Scanner</button>
+                                <div id="scannerIndicator" style="display:none; color: var(--success); font-weight: bold; margin-left: 10px;">SCANNER MODE</div>
                                 <select id="posCategoryFilter" class="select-input"><option value="">All Categories</option></select>
                             </div>
                             <div class="pos-products-grid" id="posProductsGrid"></div>
@@ -145,8 +192,6 @@
                             <div class="cart-items" id="cartItems"><p class="empty-state">No items in cart</p></div>
                             <div class="cart-summary">
                                 <div class="summary-row"><span>Subtotal</span><span id="cartSubtotal">$0.00</span></div>
-                                <div class="summary-row"><span>Tax (<span id="taxRateDisplay">0</span>%)</span><span id="cartTax">$0.00</span></div>
-                                <div class="summary-row"><span>Discount</span><input type="number" id="cartDiscount" value="0" min="0" step="0.01" class="discount-input"></div>
                                 <div class="summary-row total"><span>Total</span><span id="cartTotal">$0.00</span></div>
                             </div>
                             <div class="cart-customer">
@@ -172,13 +217,44 @@
                         <div class="filter-bar"><select id="categoryFilter" class="select-input"><option value="">All Categories</option></select><input type="text" id="productSearch" class="text-input" placeholder="Search by name or SKU..."></div>
                         <button class="btn btn-primary" id="addProductBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Product</button>
                     </div>
-                    <div class="products-grid" id="productsGrid"><p class="empty-state">No products found</p></div>
+                    <div class="table-container">
+                        <table class="data-table" id="productsTable">
+                            <thead>
+                                <tr>
+                                    <th>Product</th>
+                                    <th>SKU</th>
+                                    <th>Category</th>
+                                    <th>Price</th>
+                                    <th>Quantity</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="productsBody">
+                                <tr><td colspan="7" class="empty-state">No products found</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </section>
 
                 <!-- Categories Page -->
                 <section class="page" id="categoriesPage">
                     <div class="page-header"><h2>Manage Categories</h2><button class="btn btn-primary" id="addCategoryBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Category</button></div>
-                    <div class="categories-grid" id="categoriesGrid"><p class="empty-state">No categories found</p></div>
+                    <div class="table-container">
+                        <table class="data-table" id="categoriesTable">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Description</th>
+                                    <th>Products</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="categoriesBody">
+                                <tr><td colspan="4" class="empty-state">No categories found</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </section>
 
                 <!-- Customers Page -->
@@ -241,8 +317,8 @@
                                         <div class="form-group"><label>Company Name</label><input type="text" id="setting_company_name" class="text-input"></div>
                                         <div class="form-group"><label>Address</label><textarea id="setting_company_address" rows="3"></textarea></div>
                                         <div class="form-row"><div class="form-group"><label>Phone</label><input type="text" id="setting_company_phone" class="text-input"></div><div class="form-group"><label>Email</label><input type="email" id="setting_company_email" class="text-input"></div></div>
-                                        <div class="form-row"><div class="form-group"><label>Tax Rate (%)</label><input type="number" id="setting_tax_rate" min="0" max="100" step="0.01" class="text-input"></div><div class="form-group"><label>Currency Symbol</label><input type="text" id="setting_currency_symbol" class="text-input"></div></div>
-                                        <div class="form-row"><div class="form-group"><label>Low Stock Threshold</label><input type="number" id="setting_low_stock_threshold" min="1" class="text-input"></div><div class="form-group"><label>Invoice Prefix</label><input type="text" id="setting_invoice_prefix" class="text-input"></div></div>
+                                        <div class="form-row"><div class="form-group"><label>Currency Symbol</label><input type="text" id="setting_currency_symbol" class="text-input"></div><div class="form-group"><label>Low Stock Threshold</label><input type="number" id="setting_low_stock_threshold" min="1" class="text-input"></div></div>
+                                        <div class="form-row"><div class="form-group"><label>Invoice Prefix</label><input type="text" id="setting_invoice_prefix" class="text-input"></div></div>
                                         <button type="submit" class="btn btn-primary">Save Settings</button>
                                     </form>
                                 </div>
@@ -261,19 +337,6 @@
                                                 <div class="form-group">
                                                     <label>Minimum Order Value ($)</label>
                                                     <input type="number" id="setting_min_order_value" min="0" step="0.01" class="text-input">
-                                                </div>
-                                                <div class="form-group">
-                                                    <label>Discount Type</label>
-                                                    <select id="setting_discount_type" class="text-input">
-                                                        <option value="percentage">Percentage (%)</option>
-                                                        <option value="fixed">Fixed Amount ($)</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            <div class="form-row">
-                                                <div class="form-group">
-                                                    <label>Max Discount (%)</label>
-                                                    <input type="number" id="setting_max_discount" min="0" max="100" step="0.01" class="text-input">
                                                 </div>
                                                 <div class="form-group">
                                                     <label>Enable Credit Sales</label>

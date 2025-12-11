@@ -9,7 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
-require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/config/database.php';
 
 $database = new Database();
 $conn = $database->getConnection();
@@ -28,7 +28,9 @@ switch ($method) {
         break;
     case 'POST':
     case 'PUT':
-        updateSettings($conn);
+        // Test with hardcoded data
+        $testData = ['company_name' => 'Test Company Name'];
+        updateSettings($conn, $testData);
         break;
     default:
         echo json_encode(['error' => 'Method not allowed']);
@@ -53,24 +55,8 @@ function getSettings($conn) {
     }
 }
 
-function updateSettings($conn) {
+function updateSettings($conn, $data) {
     try {
-        $rawData = file_get_contents('php://input');
-        
-        // Handle empty data
-        if (empty($rawData)) {
-            echo json_encode(['success' => false, 'error' => 'No data received']);
-            return;
-        }
-        
-        $data = json_decode($rawData, true);
-        
-        // Check if JSON decoding was successful
-        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
-            echo json_encode(['success' => false, 'error' => 'Invalid JSON data: ' . json_last_error_msg() . '. Raw data: ' . $rawData]);
-            return;
-        }
-        
         $conn->beginTransaction();
         
         foreach ($data as $key => $value) {

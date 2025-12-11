@@ -55,8 +55,16 @@ function getProducts($conn) {
         $params = [];
         
         if (!empty($search)) {
-            $sql .= " AND (p.name LIKE :search OR p.sku LIKE :search)";
-            $params[':search'] = '%' . $search . '%';
+            // Check if exact match is requested
+            $exact = isset($_GET['exact']) && $_GET['exact'] === 'true';
+            
+            if ($exact) {
+                $sql .= " AND p.sku = :search";
+                $params[':search'] = $search;
+            } else {
+                $sql .= " AND (p.name LIKE :search OR p.sku LIKE :search)";
+                $params[':search'] = '%' . $search . '%';
+            }
         }
         
         if (!empty($category)) {
@@ -105,7 +113,7 @@ function createProduct($conn) {
             ':sku' => $data['sku'],
             ':name' => $data['name'],
             ':description' => $data['description'] ?? '',
-            ':category_id' => $data['category_id'] ?: null,
+            ':category_id' => isset($data['category_id']) && $data['category_id'] !== '' ? $data['category_id'] : null,
             ':quantity' => $data['quantity'] ?? 0,
             ':price' => $data['price'] ?? 0,
             ':cost_price' => $data['cost_price'] ?? 0,
@@ -140,7 +148,7 @@ function updateProduct($conn) {
             ':sku' => $data['sku'],
             ':name' => $data['name'],
             ':description' => $data['description'] ?? '',
-            ':category_id' => $data['category_id'] ?: null,
+            ':category_id' => isset($data['category_id']) && $data['category_id'] !== '' ? $data['category_id'] : null,
             ':quantity' => $data['quantity'] ?? 0,
             ':price' => $data['price'] ?? 0,
             ':cost_price' => $data['cost_price'] ?? 0,
