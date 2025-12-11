@@ -184,7 +184,7 @@ try {
             ('company_phone', '', 'text'),
             ('company_email', '', 'email'),
             ('tax_rate', '0', 'number'),
-            ('currency_symbol', '\$', 'text'),
+            ('currency_symbol', 'FRW', 'text'),
             ('low_stock_threshold', '10', 'number'),
             ('invoice_prefix', 'INV-', 'text'),
             ('min_order_value', '0', 'number'),
