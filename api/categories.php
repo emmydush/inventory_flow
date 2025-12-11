@@ -53,31 +53,50 @@ function getCategories($conn) {
 
 function createCategory($conn) {
     try {
-        $data = json_decode(file_get_contents('php://input'), true);
-        
-        $stmt = $conn->prepare("INSERT INTO categories (name, description) VALUES (:name, :description) RETURNING id");
+        $input = file_get_contents('php://input');
+        $data = json_decode($input, true);
+
+        if (!$data) {
+            echo json_encode(['success' => false, 'error' => 'Invalid request data']);
+            return;
+        }
+
+        if (!isset($data['name']) || empty($data['name'])) {
+            echo json_encode(['success' => false, 'error' => 'Category name is required']);
+            return;
+        }
+
+        $stmt = $conn->prepare("INSERT INTO categories (name, description) VALUES (:name, :description)");
         $stmt->execute([
             ':name' => $data['name'],
             ':description' => $data['description'] ?? ''
         ]);
         
-        $result = $stmt->fetch();
+        $result['id'] = $conn->lastInsertId();
         
         echo json_encode(['success' => true, 'id' => $result['id'], 'message' => 'Category created successfully']);
     } catch(PDOException $e) {
+        error_log('Create category error: ' . $e->getMessage());
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }
 
 function deleteCategory($conn) {
     try {
-        $data = json_decode(file_get_contents('php://input'), true);
-        
+        $input = file_get_contents('php://input');
+        $data = json_decode($input, true);
+
+        if (!$data || !isset($data['id'])) {
+            echo json_encode(['success' => false, 'error' => 'Category ID is required']);
+            return;
+        }
+
         $stmt = $conn->prepare("DELETE FROM categories WHERE id = :id");
         $stmt->execute([':id' => $data['id']]);
         
         echo json_encode(['success' => true, 'message' => 'Category deleted successfully']);
     } catch(PDOException $e) {
+        error_log('Delete category error: ' . $e->getMessage());
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }
