@@ -1,0 +1,138 @@
+<?php
+header('Content-Type: application/json');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type');
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+
+require_once __DIR__ . '/../config/database.php';
+
+$database = new Database();
+$conn = $database->getConnection();
+
+$method = $_SERVER['REQUEST_METHOD'];
+
+switch ($method) {
+    case 'GET':
+        if (isset($_GET['id'])) {
+            getCustomer($conn, $_GET['id']);
+        } else {
+            getCustomers($conn);
+        }
+        break;
+    case 'POST':
+        createCustomer($conn);
+        break;
+    case 'PUT':
+        updateCustomer($conn);
+        break;
+    case 'DELETE':
+        deleteCustomer($conn);
+        break;
+    default:
+        echo json_encode(['error' => 'Method not allowed']);
+}
+
+function getCustomers($conn) {
+    try {
+        $search = isset($_GET['search']) ? $_GET['search'] : '';
+        
+        $sql = "SELECT * FROM customers WHERE 1=1";
+        $params = [];
+        
+        if (!empty($search)) {
+            $sql .= " AND (name ILIKE :search OR email ILIKE :search OR phone ILIKE :search)";
+            $params[':search'] = '%' . $search . '%';
+        }
+        
+        $sql .= " ORDER BY name ASC";
+        
+        $stmt = $conn->prepare($sql);
+        $stmt->execute($params);
+        $customers = $stmt->fetchAll();
+        
+        echo json_encode(['success' => true, 'data' => $customers]);
+    } catch(PDOException $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+}
+
+function getCustomer($conn, $id) {
+    try {
+        $stmt = $conn->prepare("SELECT * FROM customers WHERE id = :id");
+        $stmt->execute([':id' => $id]);
+        $customer = $stmt->fetch();
+        
+        if ($customer) {
+            echo json_encode(['success' => true, 'data' => $customer]);
+        } else {
+            echo json_encode(['success' => false, 'error' => 'Customer not found']);
+        }
+    } catch(PDOException $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+}
+
+function createCustomer($conn) {
+    try {
+        $data = json_decode(file_get_contents('php://input'), true);
+        
+        $stmt = $conn->prepare("INSERT INTO customers (name, email, phone, address, credit_limit) 
+                                VALUES (:name, :email, :phone, :address, :credit_limit)
+                                RETURNING id");
+        $stmt->execute([
+            ':name' => $data['name'],
+            ':email' => $data['email'] ?? '',
+            ':phone' => $data['phone'] ?? '',
+            ':address' => $data['address'] ?? '',
+            ':credit_limit' => $data['credit_limit'] ?? 0
+        ]);
+        
+        $result = $stmt->fetch();
+        
+        echo json_encode(['success' => true, 'id' => $result['id'], 'message' => 'Customer created successfully']);
+    } catch(PDOException $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+}
+
+function updateCustomer($conn) {
+    try {
+        $data = json_decode(file_get_contents('php://input'), true);
+        
+        $stmt = $conn->prepare("UPDATE customers 
+                                SET name = :name, email = :email, phone = :phone, 
+                                    address = :address, credit_limit = :credit_limit, updated_at = CURRENT_TIMESTAMP
+                                WHERE id = :id");
+        $stmt->execute([
+            ':id' => $data['id'],
+            ':name' => $data['name'],
+            ':email' => $data['email'] ?? '',
+            ':phone' => $data['phone'] ?? '',
+            ':address' => $data['address'] ?? '',
+            ':credit_limit' => $data['credit_limit'] ?? 0
+        ]);
+        
+        echo json_encode(['success' => true, 'message' => 'Customer updated successfully']);
+    } catch(PDOException $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+}
+
+function deleteCustomer($conn) {
+    try {
+        $data = json_decode(file_get_contents('php://input'), true);
+        
+        $stmt = $conn->prepare("DELETE FROM customers WHERE id = :id");
+        $stmt->execute([':id' => $data['id']]);
+        
+        echo json_encode(['success' => true, 'message' => 'Customer deleted successfully']);
+    } catch(PDOException $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+}
+?>

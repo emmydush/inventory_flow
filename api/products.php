@@ -93,8 +93,8 @@ function createProduct($conn) {
     try {
         $data = json_decode(file_get_contents('php://input'), true);
         
-        $stmt = $conn->prepare("INSERT INTO products (sku, name, description, category_id, quantity, price, min_stock) 
-                                VALUES (:sku, :name, :description, :category_id, :quantity, :price, :min_stock)
+        $stmt = $conn->prepare("INSERT INTO products (sku, name, description, category_id, quantity, price, cost_price, min_stock) 
+                                VALUES (:sku, :name, :description, :category_id, :quantity, :price, :cost_price, :min_stock)
                                 RETURNING id");
         $stmt->execute([
             ':sku' => $data['sku'],
@@ -103,6 +103,7 @@ function createProduct($conn) {
             ':category_id' => $data['category_id'] ?: null,
             ':quantity' => $data['quantity'] ?? 0,
             ':price' => $data['price'] ?? 0,
+            ':cost_price' => $data['cost_price'] ?? 0,
             ':min_stock' => $data['min_stock'] ?? 10
         ]);
         
@@ -127,7 +128,7 @@ function updateProduct($conn) {
         $stmt = $conn->prepare("UPDATE products 
                                 SET sku = :sku, name = :name, description = :description, 
                                     category_id = :category_id, quantity = :quantity, 
-                                    price = :price, min_stock = :min_stock, updated_at = CURRENT_TIMESTAMP
+                                    price = :price, cost_price = :cost_price, min_stock = :min_stock, updated_at = CURRENT_TIMESTAMP
                                 WHERE id = :id");
         $stmt->execute([
             ':id' => $data['id'],
@@ -137,6 +138,7 @@ function updateProduct($conn) {
             ':category_id' => $data['category_id'] ?: null,
             ':quantity' => $data['quantity'] ?? 0,
             ':price' => $data['price'] ?? 0,
+            ':cost_price' => $data['cost_price'] ?? 0,
             ':min_stock' => $data['min_stock'] ?? 10
         ]);
         
