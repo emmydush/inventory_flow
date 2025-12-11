@@ -14,6 +14,12 @@ require_once __DIR__ . '/../config/database.php';
 $database = new Database();
 $conn = $database->getConnection();
 
+if (!$conn) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Database connection failed']);
+    exit;
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
@@ -45,7 +51,7 @@ function getCustomers($conn) {
         $params = [];
         
         if (!empty($search)) {
-            $sql .= " AND (name ILIKE :search OR email ILIKE :search OR phone ILIKE :search)";
+            $sql .= " AND (name LIKE :search OR email LIKE :search OR phone LIKE :search)";
             $params[':search'] = '%' . $search . '%';
         }
         
@@ -82,8 +88,7 @@ function createCustomer($conn) {
         $data = json_decode(file_get_contents('php://input'), true);
         
         $stmt = $conn->prepare("INSERT INTO customers (name, email, phone, address, credit_limit) 
-                                VALUES (:name, :email, :phone, :address, :credit_limit)
-                                RETURNING id");
+                                VALUES (:name, :email, :phone, :address, :credit_limit)");
         $stmt->execute([
             ':name' => $data['name'],
             ':email' => $data['email'] ?? '',
@@ -92,7 +97,7 @@ function createCustomer($conn) {
             ':credit_limit' => $data['credit_limit'] ?? 0
         ]);
         
-        $result = $stmt->fetch();
+        $result['id'] = $conn->lastInsertId();
         
         echo json_encode(['success' => true, 'id' => $result['id'], 'message' => 'Customer created successfully']);
     } catch(PDOException $e) {

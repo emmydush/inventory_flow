@@ -14,6 +14,12 @@ require_once __DIR__ . '/../config/database.php';
 $database = new Database();
 $conn = $database->getConnection();
 
+if (!$conn) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Database connection failed']);
+    exit;
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
@@ -49,7 +55,7 @@ function getProducts($conn) {
         $params = [];
         
         if (!empty($search)) {
-            $sql .= " AND (p.name ILIKE :search OR p.sku ILIKE :search)";
+            $sql .= " AND (p.name LIKE :search OR p.sku LIKE :search)";
             $params[':search'] = '%' . $search . '%';
         }
         
@@ -94,8 +100,7 @@ function createProduct($conn) {
         $data = json_decode(file_get_contents('php://input'), true);
         
         $stmt = $conn->prepare("INSERT INTO products (sku, name, description, category_id, quantity, price, cost_price, min_stock) 
-                                VALUES (:sku, :name, :description, :category_id, :quantity, :price, :cost_price, :min_stock)
-                                RETURNING id");
+                                VALUES (:sku, :name, :description, :category_id, :quantity, :price, :cost_price, :min_stock)");
         $stmt->execute([
             ':sku' => $data['sku'],
             ':name' => $data['name'],
@@ -107,7 +112,7 @@ function createProduct($conn) {
             ':min_stock' => $data['min_stock'] ?? 10
         ]);
         
-        $result = $stmt->fetch();
+        $result['id'] = $conn->lastInsertId();
         
         if ($data['quantity'] > 0) {
             $transStmt = $conn->prepare("INSERT INTO stock_transactions (product_id, type, quantity, notes) 

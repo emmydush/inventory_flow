@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Supplier Creation</title>
+</head>
+<body>
+    <h1>Test Supplier Creation</h1>
+    <form id="testForm">
+        <label for="name">Name:</label>
+        <input type="text" id="name" value="Test Supplier" required><br><br>
+        
+        <label for="contact">Contact Person:</label>
+        <input type="text" id="contact" value="John Doe"><br><br>
+        
+        <label for="email">Email:</label>
+        <input type="email" id="email" value="john@test.com"><br><br>
+        
+        <label for="phone">Phone:</label>
+        <input type="text" id="phone" value="123-456-7890"><br><br>
+        
+        <label for="address">Address:</label>
+        <input type="text" id="address" value="123 Test St"><br><br>
+        
+        <label for="notes">Notes:</label>
+        <input type="text" id="notes" value="Test notes"><br><br>
+        
+        <button type="submit">Create Supplier</button>
+    </form>
+    
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('testForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const data = {
+                name: document.getElementById('name').value,
+                contact_person: document.getElementById('contact').value,
+                email: document.getElementById('email').value,
+                phone: document.getElementById('phone').value,
+                address: document.getElementById('address').value,
+                notes: document.getElementById('notes').value
+            };
+            
+            try {
+                const response = await fetch('/api/suppliers.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                document.getElementById('result').innerHTML = '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+                
+                if (result.success) {
+                    // Clean up the test supplier
+                    await fetch('/api/suppliers.php', {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({id: result.id})
+                    });
+                }
+            } catch (error) {
+                document.getElementById('result').innerHTML = '<p>Error: ' + error.message + '</p>';
+            }
+        });
+    </script>
+</body>
+</html>

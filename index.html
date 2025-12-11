@@ -85,6 +85,12 @@
                     </svg>
                     <span>Stock History</span>
                 </li>
+                <li class="nav-item" data-page="users">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                    </svg>
+                    <span>Users</span>
+                </li>
                 <li class="nav-item" data-page="settings">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -222,6 +228,34 @@
                 <section class="page" id="transactionsPage">
                     <div class="page-header"><h2>Stock Transaction History</h2></div>
                     <div class="table-container"><table class="data-table" id="transactionsTable"><thead><tr><th>Date</th><th>Product</th><th>SKU</th><th>Type</th><th>Quantity</th><th>Notes</th></tr></thead><tbody id="transactionsBody"><tr><td colspan="6" class="empty-state">No transactions found</td></tr></tbody></table></div>
+                </section>
+
+                <!-- Users Page -->
+                <section class="page" id="usersPage">
+                    <div class="page-header">
+                        <h2>User Management</h2>
+                        <button class="btn btn-primary" id="addUserBtn">Add User</button>
+                    </div>
+                    <div class="filter-bar">
+                        <input type="text" id="userSearch" class="search-box" placeholder="Search users by name, username, or email...">
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table" id="usersTable">
+                            <thead>
+                                <tr>
+                                    <th>Username</th>
+                                    <th>Full Name</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usersBody">
+                                <tr><td colspan="6" class="empty-state">No users found</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </section>
 
                 <!-- Settings Page -->
@@ -378,6 +412,9 @@
             </div>
         </main>
     </div>
+
+    <!-- User Modal -->
+    <div class="modal-overlay" id="userModal"><div class="modal"><div class="modal-header"><h3 id="userModalTitle">Add User</h3><button class="modal-close" id="closeUserModal">&times;</button></div><form id="userForm" class="modal-body"><input type="hidden" id="userId"><div class="form-group"><label for="userName">Username *</label><input type="text" id="userName" required></div><div class="form-group"><label for="userFullName">Full Name *</label><input type="text" id="userFullName" required></div><div class="form-group"><label for="userEmail">Email *</label><input type="email" id="userEmail" required></div><div class="form-row"><div class="form-group"><label for="userPassword">Password</label><input type="password" id="userPassword" placeholder="Leave blank to keep current password"></div><div class="form-group"><label for="userRole">Role *</label><select id="userRole" required><option value="cashier">Cashier</option><option value="manager">Manager</option><option value="admin">Admin</option></select></div></div><div class="form-group"><label for="userStatus">Status</label><select id="userStatus" required><option value="active">Active</option><option value="inactive">Inactive</option></select></div><div class="modal-footer"><button type="button" class="btn btn-secondary" id="cancelUserBtn">Cancel</button><button type="submit" class="btn btn-primary">Save User</button></div></form></div></div>
 
     <!-- Product Modal -->
     <div class="modal-overlay" id="productModal"><div class="modal"><div class="modal-header"><h3 id="productModalTitle">Add Product</h3><button class="modal-close" id="closeProductModal">&times;</button></div><form id="productForm" class="modal-body"><input type="hidden" id="productId"><div class="form-row"><div class="form-group"><label for="productSku">SKU *</label><input type="text" id="productSku" required></div><div class="form-group"><label for="productName">Name *</label><input type="text" id="productName" required></div></div><div class="form-group"><label for="productDescription">Description</label><textarea id="productDescription" rows="2"></textarea></div><div class="form-row"><div class="form-group"><label for="productCategory">Category</label><select id="productCategory"><option value="">Select Category</option></select></div><div class="form-group"><label for="productPrice">Sell Price ($)</label><input type="number" id="productPrice" step="0.01" min="0" value="0"></div></div><div class="form-row"><div class="form-group"><label for="productCostPrice">Cost Price ($)</label><input type="number" id="productCostPrice" step="0.01" min="0" value="0"></div><div class="form-group"><label for="productQuantity">Quantity</label><input type="number" id="productQuantity" min="0" value="0"></div></div><div class="form-group"><label for="productMinStock">Min Stock Level</label><input type="number" id="productMinStock" min="0" value="10"></div><div class="modal-footer"><button type="button" class="btn btn-secondary" id="cancelProductBtn">Cancel</button><button type="submit" class="btn btn-primary">Save Product</button></div></form></div></div>

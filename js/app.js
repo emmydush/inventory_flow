@@ -695,6 +695,106 @@ async function deleteSupplier(id) {
     } catch (e) { console.error('Delete supplier error:', e); showToast('Error deleting supplier', 'error'); }
 }
 
+async function loadUsers() {
+    try {
+        const search = document.getElementById('userSearch')?.value || '';
+        const response = await fetch(`${API_BASE}/users.php${search ? '?search=' + encodeURIComponent(search) : ''}`);
+        const result = await response.json();
+        if (result.success) renderUsers(result.data);
+    } catch (e) { console.error('Users error:', e); }
+}
+
+function renderUsers(users) {
+    const tbody = document.getElementById('usersBody');
+    if (!users || users.length === 0) { tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No users found</td></tr>'; return; }
+    tbody.innerHTML = users.map(user => `
+        <tr>
+            <td>${user.username}</td>
+            <td>${user.full_name}</td>
+            <td>${user.email}</td>
+            <td><span class="badge badge-${user.role === 'admin' ? 'danger' : user.role === 'manager' ? 'warning' : 'info'}">${user.role.charAt(0).toUpperCase() + user.role.slice(1)}</span></td>
+            <td><span class="badge badge-${user.status === 'active' ? 'success' : 'secondary'}">${user.status.charAt(0).toUpperCase() + user.status.slice(1)}</span></td>
+            <td>
+                <button class="btn btn-small btn-primary" onclick="editUser(${user.id})">Edit</button>
+                <button class="btn btn-small btn-danger" onclick="deleteUser(${user.id})">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function openUserModal(user = null) {
+    const modal = document.getElementById('userModal');
+    const title = document.getElementById('userModalTitle');
+    const form = document.getElementById('userForm');
+    form.reset();
+    if (user) {
+        title.textContent = 'Edit User';
+        document.getElementById('userId').value = user.id;
+        document.getElementById('userName').value = user.username;
+        document.getElementById('userName').disabled = true;
+        document.getElementById('userFullName').value = user.full_name;
+        document.getElementById('userEmail').value = user.email;
+        document.getElementById('userRole').value = user.role;
+        document.getElementById('userStatus').value = user.status;
+        document.querySelector('label[for="userPassword"]').textContent = 'Password (leave blank to keep current)';
+    } else {
+        title.textContent = 'Add User';
+        document.getElementById('userId').value = '';
+        document.getElementById('userName').disabled = false;
+        document.querySelector('label[for="userPassword"]').textContent = 'Password *';
+    }
+    modal.classList.add('active');
+}
+
+function closeUserModal() { document.getElementById('userModal').classList.remove('active'); }
+
+async function editUser(id) {
+    try {
+        const response = await fetch(`${API_BASE}/users.php?id=${id}`);
+        const result = await response.json();
+        if (result.success) openUserModal(result.data);
+    } catch (e) { console.error('Get user error:', e); showToast('Error loading user', 'error'); }
+}
+
+async function handleUserSubmit(e) {
+    e.preventDefault();
+    const id = document.getElementById('userId').value;
+    const password = document.getElementById('userPassword').value;
+
+    if (!id && !password) {
+        showToast('Password is required for new users', 'error');
+        return;
+    }
+
+    const data = {
+        username: document.getElementById('userName').value,
+        full_name: document.getElementById('userFullName').value,
+        email: document.getElementById('userEmail').value,
+        role: document.getElementById('userRole').value,
+        status: document.getElementById('userStatus').value
+    };
+
+    if (password) data.password = password;
+    if (id) data.id = id;
+
+    try {
+        const response = await fetch(`${API_BASE}/users.php`, { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        const result = await response.json();
+        if (result.success) { showToast(result.message, 'success'); closeUserModal(); loadUsers(); }
+        else showToast(result.error || 'Error saving user', 'error');
+    } catch (e) { console.error('Save user error:', e); showToast('Error saving user', 'error'); }
+}
+
+async function deleteUser(id) {
+    if (!confirm('Are you sure you want to delete this user?')) return;
+    try {
+        const response = await fetch(`${API_BASE}/users.php`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+        const result = await response.json();
+        if (result.success) { showToast('User deleted successfully', 'success'); loadUsers(); }
+        else showToast(result.error || 'Error deleting user', 'error');
+    } catch (e) { console.error('Delete user error:', e); showToast('Error deleting user', 'error'); }
+}
+
 async function handleSettingsSubmit(e) {
     e.preventDefault();
     const data = {};

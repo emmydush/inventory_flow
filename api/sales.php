@@ -14,6 +14,12 @@ require_once __DIR__ . '/../config/database.php';
 $database = new Database();
 $conn = $database->getConnection();
 
+if (!$conn) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Database connection failed']);
+    exit;
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
@@ -116,8 +122,7 @@ function createSale($conn) {
         $paymentStatus = $data['payment_method'] === 'credit' ? 'pending' : 'paid';
         
         $stmt = $conn->prepare("INSERT INTO sales (invoice_number, customer_id, subtotal, tax, discount, total, payment_method, payment_status, notes) 
-                                VALUES (:invoice_number, :customer_id, :subtotal, :tax, :discount, :total, :payment_method, :payment_status, :notes)
-                                RETURNING id");
+                                VALUES (:invoice_number, :customer_id, :subtotal, :tax, :discount, :total, :payment_method, :payment_status, :notes)");
         $stmt->execute([
             ':invoice_number' => $invoiceNumber,
             ':customer_id' => $data['customer_id'] ?: null,
@@ -130,8 +135,7 @@ function createSale($conn) {
             ':notes' => $data['notes'] ?? ''
         ]);
         
-        $saleResult = $stmt->fetch();
-        $saleId = $saleResult['id'];
+        $saleId = $conn->lastInsertId();
         
         foreach ($data['items'] as $item) {
             $itemStmt = $conn->prepare("INSERT INTO sale_items (sale_id, product_id, product_name, quantity, unit_price, total) 

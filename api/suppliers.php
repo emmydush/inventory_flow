@@ -14,6 +14,12 @@ require_once __DIR__ . '/../config/database.php';
 $database = new Database();
 $conn = $database->getConnection();
 
+if (!$conn) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Database connection failed']);
+    exit;
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
@@ -45,7 +51,7 @@ function getSuppliers($conn) {
         $params = [];
         
         if (!empty($search)) {
-            $sql .= " AND (name ILIKE :search OR contact_person ILIKE :search OR email ILIKE :search)";
+            $sql .= " AND (name LIKE :search OR contact_person LIKE :search OR email LIKE :search)";
             $params[':search'] = '%' . $search . '%';
         }
         
@@ -79,11 +85,21 @@ function getSupplier($conn, $id) {
 
 function createSupplier($conn) {
     try {
-        $data = json_decode(file_get_contents('php://input'), true);
-        
-        $stmt = $conn->prepare("INSERT INTO suppliers (name, contact_person, email, phone, address, notes) 
-                                VALUES (:name, :contact_person, :email, :phone, :address, :notes)
-                                RETURNING id");
+        $input = file_get_contents('php://input');
+        $data = json_decode($input, true);
+
+        if (!$data) {
+            echo json_encode(['success' => false, 'error' => 'Invalid request data']);
+            return;
+        }
+
+        if (!isset($data['name']) || empty($data['name'])) {
+            echo json_encode(['success' => false, 'error' => 'Supplier name is required']);
+            return;
+        }
+
+        $stmt = $conn->prepare("INSERT INTO suppliers (name, contact_person, email, phone, address, notes)
+                                VALUES (:name, :contact_person, :email, :phone, :address, :notes)");
         $stmt->execute([
             ':name' => $data['name'],
             ':contact_person' => $data['contact_person'] ?? '',
@@ -92,21 +108,33 @@ function createSupplier($conn) {
             ':address' => $data['address'] ?? '',
             ':notes' => $data['notes'] ?? ''
         ]);
-        
-        $result = $stmt->fetch();
-        
+
+        $result['id'] = $conn->lastInsertId();
+
         echo json_encode(['success' => true, 'id' => $result['id'], 'message' => 'Supplier created successfully']);
     } catch(PDOException $e) {
+        error_log('Create supplier error: ' . $e->getMessage());
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }
 
 function updateSupplier($conn) {
     try {
-        $data = json_decode(file_get_contents('php://input'), true);
-        
-        $stmt = $conn->prepare("UPDATE suppliers 
-                                SET name = :name, contact_person = :contact_person, email = :email, 
+        $input = file_get_contents('php://input');
+        $data = json_decode($input, true);
+
+        if (!$data) {
+            echo json_encode(['success' => false, 'error' => 'Invalid request data']);
+            return;
+        }
+
+        if (!isset($data['id']) || !isset($data['name']) || empty($data['name'])) {
+            echo json_encode(['success' => false, 'error' => 'Supplier ID and name are required']);
+            return;
+        }
+
+        $stmt = $conn->prepare("UPDATE suppliers
+                                SET name = :name, contact_person = :contact_person, email = :email,
                                     phone = :phone, address = :address, notes = :notes, updated_at = CURRENT_TIMESTAMP
                                 WHERE id = :id");
         $stmt->execute([
@@ -118,22 +146,30 @@ function updateSupplier($conn) {
             ':address' => $data['address'] ?? '',
             ':notes' => $data['notes'] ?? ''
         ]);
-        
+
         echo json_encode(['success' => true, 'message' => 'Supplier updated successfully']);
     } catch(PDOException $e) {
+        error_log('Update supplier error: ' . $e->getMessage());
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }
 
 function deleteSupplier($conn) {
     try {
-        $data = json_decode(file_get_contents('php://input'), true);
-        
+        $input = file_get_contents('php://input');
+        $data = json_decode($input, true);
+
+        if (!$data || !isset($data['id'])) {
+            echo json_encode(['success' => false, 'error' => 'Supplier ID is required']);
+            return;
+        }
+
         $stmt = $conn->prepare("DELETE FROM suppliers WHERE id = :id");
         $stmt->execute([':id' => $data['id']]);
-        
+
         echo json_encode(['success' => true, 'message' => 'Supplier deleted successfully']);
     } catch(PDOException $e) {
+        error_log('Delete supplier error: ' . $e->getMessage());
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }

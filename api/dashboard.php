@@ -14,6 +14,12 @@ require_once __DIR__ . '/../config/database.php';
 $database = new Database();
 $conn = $database->getConnection();
 
+if (!$conn) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Database connection failed']);
+    exit;
+}
+
 try {
     $totalProducts = $conn->query("SELECT COUNT(*) FROM products")->fetchColumn();
     
