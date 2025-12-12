@@ -135,6 +135,42 @@ body {
 
 .menu-toggle svg { width: 24px; height: 24px; }
 .header-title h1 { font-size: 1.25rem; font-weight: 600; }
+.header-actions { margin-left: auto; display: flex; align-items: center; gap: 1rem; }
+
+.notification-badge {
+    position: relative;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: var(--border-radius-sm);
+    transition: var(--transition);
+}
+
+.notification-badge:hover {
+    background: var(--bg-tertiary);
+}
+
+.notification-badge i {
+    font-size: 1.1rem;
+    color: var(--text-muted);
+}
+
+.notification-badge .badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: var(--danger);
+    color: white;
+    font-size: 0.6rem;
+    font-weight: 600;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+}
+
 .header-actions { margin-left: auto; }
 
 .search-box {
@@ -207,6 +243,11 @@ body {
 .stat-label { color: var(--text-secondary); font-size: 0.75rem; }
 
 .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 1.5rem; }
+
+/* Welcome Message */
+.welcome-message { background: linear-gradient(135deg, var(--primary), #4f46e5); color: white; padding: 1.5rem; border-radius: var(--border-radius); margin-bottom: 1.5rem; box-shadow: var(--shadow); }
+.welcome-message h2 { margin: 0 0 0.5rem 0; font-size: 1.5rem; font-weight: 600; }
+.welcome-message p { margin: 0; opacity: 0.9; font-size: 0.95rem; }
 
 .user-profile-details p { margin: 0.25rem 0; font-size: 0.9rem; }
 .user-profile-details strong { color: var(--text-secondary); }

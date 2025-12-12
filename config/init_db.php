@@ -1,36 +1,38 @@
 <?php
-require_once __DIR__ . '/database.php';
-
-$database = new Database();
-$conn = $database->getConnection();
-
-if (!$conn) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Database connection failed. Please ensure MySQL is running and credentials are correct.']);
-    exit;
-}
+header('Content-Type: application/json');
 
 try {
+    require_once 'database.php';
+    
+    $database = new Database();
+    $conn = $database->getConnection();
+    
+    if (!$conn) {
+        echo json_encode(['success' => false, 'message' => 'Database connection failed']);
+        exit;
+    }
+    
+    // Create tables
     $conn->exec("
         CREATE TABLE IF NOT EXISTS categories (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(100) NOT NULL UNIQUE,
+            id INTEGER PRIMARY KEY AUTO_INCREMENT,
+            name VARCHAR(255) NOT NULL,
             description TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ");
 
     $conn->exec("
         CREATE TABLE IF NOT EXISTS products (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            sku VARCHAR(50) NOT NULL UNIQUE,
+            id INTEGER PRIMARY KEY AUTO_INCREMENT,
             name VARCHAR(255) NOT NULL,
             description TEXT,
             category_id INTEGER,
-            quantity INTEGER DEFAULT 0,
-            price DECIMAL(10, 2) DEFAULT 0.00,
-            cost_price DECIMAL(10, 2) DEFAULT 0.00,
-            min_stock INTEGER DEFAULT 10,
+            price DECIMAL(10, 2) NOT NULL,
+            stock_quantity INTEGER NOT NULL DEFAULT 0,
+            sku VARCHAR(100),
+            status VARCHAR(20) DEFAULT 'active',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
@@ -147,8 +149,11 @@ try {
             full_name VARCHAR(255) NOT NULL,
             role VARCHAR(50) DEFAULT 'cashier',
             status VARCHAR(20) DEFAULT 'active',
+            department_id INT NULL,
+            last_login TIMESTAMP NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
         )
     ");
 
@@ -163,15 +168,146 @@ try {
         )
     ");
 
-    $check = $conn->query("SELECT COUNT(*) FROM categories")->fetchColumn();
-    if ($check == 0) {
+    $conn->exec("
+        CREATE TABLE IF NOT EXISTS activity_logs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            action VARCHAR(100) NOT NULL,
+            entity_type VARCHAR(50),
+            entity_id INT,
+            old_values JSON,
+            new_values JSON,
+            ip_address VARCHAR(45),
+            user_agent TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            INDEX (user_id), INDEX (created_at), INDEX (entity_type)
+        )
+    ");
+
+    $conn->exec("
+        CREATE TABLE IF NOT EXISTS user_sessions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            session_token VARCHAR(255) NOT NULL UNIQUE,
+            ip_address VARCHAR(45),
+            user_agent TEXT,
+            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NULL,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            INDEX (user_id), INDEX (session_token), INDEX (expires_at)
+        )
+    ");
+
+    $conn->exec("
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT,
+            action VARCHAR(100) NOT NULL,
+            table_name VARCHAR(100),
+            record_id INT,
+            changes JSON,
+            status VARCHAR(20) DEFAULT 'success',
+            error_message TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+            INDEX (user_id), INDEX (created_at), INDEX (table_name)
+        )
+    ");
+
+    $conn->exec("
+        CREATE TABLE IF NOT EXISTS user_permissions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            role VARCHAR(50) NOT NULL,
+            permission VARCHAR(100) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_role_permission (role, permission)
+        )
+    ");
+
+    $conn->exec("
+        CREATE TABLE IF NOT EXISTS individual_permissions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            permission VARCHAR(100) NOT NULL,
+            granted BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            UNIQUE KEY unique_user_permission (user_id, permission)
+        )
+    ");
+
+    $conn->exec("
+        CREATE TABLE IF NOT EXISTS departments (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL UNIQUE,
+            description TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ");
+
+    $conn->exec("
+        CREATE TABLE IF NOT EXISTS real_time_events (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT,
+            event_type VARCHAR(50) NOT NULL,
+            entity_type VARCHAR(50),
+            entity_id INT,
+            event_data JSON,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+            INDEX (created_at), INDEX (event_type)
+        )
+    ");
+
+    // Add default data if not exists
+    $categoriesCheck = $conn->query("SELECT COUNT(*) FROM categories")->fetchColumn();
+    if ($categoriesCheck == 0) {
         $conn->exec("
-            INSERT INTO categories (name, description) VALUES
+            INSERT INTO categories (name, description) VALUES 
             ('Electronics', 'Electronic devices and accessories'),
             ('Clothing', 'Apparel and fashion items'),
-            ('Food & Beverages', 'Consumable products'),
-            ('Office Supplies', 'Stationery and office equipment'),
-            ('Home & Garden', 'Household and gardening items')
+            ('Home & Garden', 'Home improvement and garden supplies'),
+            ('Books', 'Books and educational materials'),
+            ('Sports', 'Sports equipment and accessories')
+        ");
+    }
+
+    $productsCheck = $conn->query("SELECT COUNT(*) FROM products")->fetchColumn();
+    if ($productsCheck == 0) {
+        $conn->exec("
+            INSERT INTO products (name, description, category_id, price, stock_quantity, sku) VALUES
+            ('iPhone 13 Pro', 'Latest Apple smartphone with advanced camera system', 1, 999.99, 25, 'IPH13PRO'),
+            ('Samsung Galaxy S22', 'Android flagship smartphone with excellent display', 1, 899.99, 30, 'SGS22'),
+            ('MacBook Pro 16\"', 'Professional laptop for creators and developers', 1, 2399.99, 15, 'MBP16'),
+            ('Nike Air Max 270', 'Comfortable running shoes with air cushioning', 2, 129.99, 50, 'NAM270'),
+            ('Levi''s 501 Jeans', 'Classic straight fit denim jeans', 2, 59.99, 100, 'LV501'),
+            ('Garden Hose 50ft', 'Durable rubber garden hose for watering plants', 3, 24.99, 75, 'GH50'),
+            ('Harry Potter Collection', 'Complete set of Harry Potter books', 4, 89.99, 40, 'HPSET'),
+            ('Yoga Mat', 'Non-slip yoga mat for exercise and meditation', 5, 29.99, 60, 'YMAT')
+        ");
+    }
+
+    $customersCheck = $conn->query("SELECT COUNT(*) FROM customers")->fetchColumn();
+    if ($customersCheck == 0) {
+        $conn->exec("
+            INSERT INTO customers (name, email, phone, address, credit_limit) VALUES
+            ('John Smith', 'john.smith@email.com', '(555) 123-4567', '123 Main St, Anytown, USA', 500.00),
+            ('Sarah Johnson', 'sarah.johnson@email.com', '(555) 987-6543', '456 Oak Ave, Somewhere, USA', 1000.00),
+            ('Mike Davis', 'mike.davis@email.com', '(555) 456-7890', '789 Pine Rd, Elsewhere, USA', 250.00)
+        ");
+    }
+
+    $suppliersCheck = $conn->query("SELECT COUNT(*) FROM suppliers")->fetchColumn();
+    if ($suppliersCheck == 0) {
+        $conn->exec("
+            INSERT INTO suppliers (name, contact_person, email, phone, address) VALUES
+            ('Tech Distributors Inc', 'Robert Brown', 'robert@techdist.com', '(555) 111-2222', '123 Tech Blvd, Electronics City, USA'),
+            ('Fashion Wholesale Co', 'Jennifer Lee', 'jennifer@fashionwholesale.com', '(555) 333-4444', '456 Fashion St, Apparel Town, USA'),
+            ('Garden Supply Co', 'Michael Green', 'michael@gardensupply.com', '(555) 555-6666', '789 Garden Ln, Green Valley, USA')
         ");
     }
 
@@ -179,28 +315,10 @@ try {
     if ($settingsCheck == 0) {
         $conn->exec("
             INSERT INTO settings (setting_key, setting_value, setting_type) VALUES
-            ('company_name', 'InventoryPro', 'text'),
-            ('company_address', '', 'textarea'),
-            ('company_phone', '', 'text'),
-            ('company_email', '', 'email'),
-            ('tax_rate', '0', 'number'),
-            ('currency_symbol', 'FRW', 'text'),
-            ('low_stock_threshold', '10', 'number'),
-            ('invoice_prefix', 'INV-', 'text'),
-            ('min_order_value', '0', 'number'),
-            ('discount_type', 'percentage', 'text'),
-            ('max_discount', '50', 'number'),
-            ('enable_credit_sales', '1', 'boolean'),
-            ('stock_alert_email', '', 'email'),
-            ('enable_stock_alerts', '1', 'boolean'),
-            ('decimal_places', '2', 'number'),
-            ('number_format', '1000.00', 'text'),
-            ('session_timeout', '30', 'number'),
-            ('enable_auto_backup', '0', 'boolean'),
-            ('enable_receipt_printing', '1', 'boolean'),
-            ('theme_preference', 'light', 'text'),
-            ('items_per_page', '20', 'number'),
-            ('date_format', 'MM/DD/YYYY', 'text')
+            ('company_name', 'InventoryPro Demo', 'text'),
+            ('currency_symbol', '$', 'text'),
+            ('tax_rate', '8.5', 'number'),
+            ('low_stock_threshold', '10', 'number')
         ");
     }
 
@@ -210,6 +328,69 @@ try {
         $conn->exec("
             INSERT INTO users (username, email, password_hash, full_name, role, status) VALUES
             ('admin', 'admin@inventorypro.local', '$defaultPassword', 'Administrator', 'admin', 'active')
+        ");
+    }
+
+    $permissionsCheck = $conn->query("SELECT COUNT(*) FROM user_permissions")->fetchColumn();
+    if ($permissionsCheck == 0) {
+        $permissions = [
+            // Admin permissions
+            ['role' => 'admin', 'permission' => 'view_dashboard'],
+            ['role' => 'admin', 'permission' => 'manage_users'],
+            ['role' => 'admin', 'permission' => 'manage_products'],
+            ['role' => 'admin', 'permission' => 'manage_categories'],
+            ['role' => 'admin', 'permission' => 'manage_customers'],
+            ['role' => 'admin', 'permission' => 'manage_suppliers'],
+            ['role' => 'admin', 'permission' => 'process_sales'],
+            ['role' => 'admin', 'permission' => 'manage_credit_sales'],
+            ['role' => 'admin', 'permission' => 'view_reports'],
+            ['role' => 'admin', 'permission' => 'manage_settings'],
+            ['role' => 'admin', 'permission' => 'view_audit_logs'],
+            ['role' => 'admin', 'permission' => 'manage_inventory'],
+            ['role' => 'admin', 'permission' => 'export_data'],
+            ['role' => 'admin', 'permission' => 'import_data'],
+            ['role' => 'admin', 'permission' => 'manage_departments'],
+            ['role' => 'admin', 'permission' => 'view_all_data'],
+            ['role' => 'admin', 'permission' => 'delete_records'],
+
+            // Manager permissions
+            ['role' => 'manager', 'permission' => 'view_dashboard'],
+            ['role' => 'manager', 'permission' => 'manage_products'],
+            ['role' => 'manager', 'permission' => 'manage_categories'],
+            ['role' => 'manager', 'permission' => 'manage_customers'],
+            ['role' => 'manager', 'permission' => 'manage_suppliers'],
+            ['role' => 'manager', 'permission' => 'process_sales'],
+            ['role' => 'manager', 'permission' => 'manage_credit_sales'],
+            ['role' => 'manager', 'permission' => 'view_reports'],
+            ['role' => 'manager', 'permission' => 'manage_inventory'],
+            ['role' => 'manager', 'permission' => 'export_data'],
+            ['role' => 'manager', 'permission' => 'view_department_data'],
+
+            // Cashier permissions
+            ['role' => 'cashier', 'permission' => 'view_dashboard'],
+            ['role' => 'cashier', 'permission' => 'view_products'],
+            ['role' => 'cashier', 'permission' => 'process_sales'],
+            ['role' => 'cashier', 'permission' => 'view_customers'],
+            ['role' => 'cashier', 'permission' => 'view_own_data'],
+        ];
+
+        foreach ($permissions as $perm) {
+            $conn->exec(sprintf(
+                "INSERT INTO user_permissions (role, permission) VALUES ('%s', '%s')",
+                $perm['role'],
+                $perm['permission']
+            ));
+        }
+    }
+
+    // Check if departments exist, if not create default ones
+    $departmentsCheck = $conn->query("SELECT COUNT(*) FROM departments")->fetchColumn();
+    if ($departmentsCheck == 0) {
+        $conn->exec("
+            INSERT INTO departments (name, description) VALUES 
+            ('Sales', 'Sales department'),
+            ('Inventory', 'Inventory management department'),
+            ('Administration', 'Administrative department')
         ");
     }
 

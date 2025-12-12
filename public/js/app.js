@@ -52,6 +52,59 @@ function setupEventListeners() {
     
     // Add logout event listener
     document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+    
+    // User dropdown functionality
+    const userDropdown = document.getElementById('userDropdown');
+    const userDropdownMenu = document.getElementById('userDropdownMenu');
+    const logoutBtnHeader = document.getElementById('logoutBtnHeader');
+    
+    if (userDropdown) {
+        userDropdown.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // Only toggle if the click target is the dropdown itself, not its children
+            if (e.target === userDropdown || userDropdown.contains(e.target)) {
+                userDropdownMenu.classList.toggle('show');
+            }
+        });
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (userDropdownMenu.classList.contains('show') && !userDropdown.contains(e.target)) {
+                userDropdownMenu.classList.remove('show');
+            }
+        });
+        
+        // View profile button
+        const viewProfileBtn = document.getElementById('viewProfileBtn');
+        if (viewProfileBtn) {
+            viewProfileBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                userDropdownMenu.classList.remove('show');
+                // Navigate to dashboard to show user profile
+                navigateTo('dashboard');
+            });
+        }
+        
+        // Session management button
+        const sessionManagementBtn = document.getElementById('sessionManagementBtn');
+        if (sessionManagementBtn) {
+            sessionManagementBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                userDropdownMenu.classList.remove('show');
+                // TODO: Implement session management
+                alert('Session management feature coming soon!');
+            });
+        }
+        
+        // Logout button in header
+        if (logoutBtnHeader) {
+            logoutBtnHeader.addEventListener('click', (e) => {
+                e.stopPropagation();
+                userDropdownMenu.classList.remove('show');
+                handleLogout();
+            });
+        }
+    }
 
     document.getElementById('addProductBtn').addEventListener('click', () => openProductModal());
     document.getElementById('closeProductModal').addEventListener('click', closeProductModal);
@@ -91,7 +144,6 @@ function setupEventListeners() {
 
     document.getElementById('categoryFilter').addEventListener('change', loadProducts);
     document.getElementById('productSearch').addEventListener('input', debounce(loadProducts, 300));
-    document.getElementById('globalSearch').addEventListener('input', debounce(handleGlobalSearch, 300));
     document.getElementById('customerSearch').addEventListener('input', debounce(loadCustomers, 300));
     document.getElementById('supplierSearch').addEventListener('input', debounce(loadSuppliers, 300));
 
@@ -170,11 +222,36 @@ async function loadDashboard() {
         const userResult = await userResponse.json();
         
         if (userResult.success && userResult.authenticated) {
-            // Update user profile information in sidebar
-            document.getElementById('profileFullName').textContent = userResult.user.full_name;
-            document.getElementById('profileUsername').textContent = userResult.user.username;
-            document.getElementById('profileEmail').textContent = userResult.user.email;
-            document.getElementById('profileRole').textContent = userResult.user.role;
+            // Update user profile information in sidebar (if elements exist)
+            const profileUsername = document.getElementById('profileUsername');
+            const profileRole = document.getElementById('profileRole');
+            if (profileUsername) profileUsername.textContent = userResult.user.username;
+            if (profileRole) profileRole.textContent = userResult.user.role;
+            
+            // Update welcome message with user's name
+            const welcomeUserName = document.getElementById('welcomeUserName');
+            if (welcomeUserName) {
+                // Use full name if available, otherwise fallback to username
+                const displayName = userResult.user.full_name || userResult.user.username;
+                welcomeUserName.textContent = displayName;
+            }
+            
+            // Update user avatar with initials
+            const userAvatarInitials = document.getElementById('userAvatarInitials');
+            if (userAvatarInitials) {
+                // Use full name if available, otherwise fallback to username
+                const displayName = userResult.user.full_name || userResult.user.username;
+                const initials = displayName.charAt(0).toUpperCase();
+                userAvatarInitials.textContent = initials;
+            }
+            
+            // Update header username display
+            const topBarUserName = document.getElementById('topBarUserName');
+            if (topBarUserName) {
+                // Use full name if available, otherwise fallback to username
+                const displayName = userResult.user.full_name || userResult.user.username;
+                topBarUserName.textContent = displayName;
+            }
         }
         
         const response = await fetch(`${API_BASE}/reports.php?type=summary`);
@@ -1027,10 +1104,6 @@ async function handleLogout() {
     }
 }
 
-function handleGlobalSearch(e) {
-    const query = e.target.value.trim();
-    if (query.length >= 2) { navigateTo('products'); document.getElementById('productSearch').value = query; loadProducts(); }
-}
 
 function showToast(message, type = 'success') {
     const toast = document.getElementById('toast');
