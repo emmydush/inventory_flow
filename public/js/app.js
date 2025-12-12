@@ -115,25 +115,10 @@ function setupEventListeners() {
     document.getElementById('creditStatusFilter').addEventListener('change', loadCreditSales);
 
     document.querySelectorAll('.report-tab').forEach(tab => {
-        // Remove any existing event listeners to prevent duplication
-        const clone = tab.cloneNode(true);
-        tab.parentNode.replaceChild(clone, tab);
-        
-        // Add new event listener
-        clone.addEventListener('click', (e) => {
-            e.preventDefault();
-            
-            // Remove active class from all tabs
-            document.querySelectorAll('.report-tab').forEach(t => {
-                t.classList.remove('active');
-            });
-            
-            // Add active class to clicked tab
-            clone.classList.add('active');
-            
-            // Load the report
-            const reportType = clone.dataset.report;
-            loadReport(reportType);
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.report-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            loadReport(tab.dataset.report);
         });
     });
 
@@ -180,6 +165,18 @@ function toggleSidebar() { document.querySelector('.sidebar').classList.toggle('
 
 async function loadDashboard() {
     try {
+        // Get current user data from session
+        const userResponse = await fetch(`${API_BASE}/auth/check-session.php`);
+        const userResult = await userResponse.json();
+        
+        if (userResult.success && userResult.authenticated) {
+            // Update user profile information in sidebar
+            document.getElementById('profileFullName').textContent = userResult.user.full_name;
+            document.getElementById('profileUsername').textContent = userResult.user.username;
+            document.getElementById('profileEmail').textContent = userResult.user.email;
+            document.getElementById('profileRole').textContent = userResult.user.role;
+        }
+        
         const response = await fetch(`${API_BASE}/reports.php?type=summary`);
         const result = await response.json();
         if (result.success) {
@@ -1015,8 +1012,19 @@ async function handleAdvancedSettingsSubmit(e) {
 }
 
 async function handleLogout() {
-    // Since we removed the authentication system, we'll just redirect to home
-    window.location.href = '/';
+    try {
+        const response = await fetch('/api/auth/logout.php', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showToast('Logout successful', 'success');
+            setTimeout(() => {
+                window.location.href = '/public/login.html';
+            }, 1000);
+        }
+    } catch (error) {
+        console.error('Logout error:', error);
+        showToast('Error logging out', 'error');
+    }
 }
 
 function handleGlobalSearch(e) {
