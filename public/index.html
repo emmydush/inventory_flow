@@ -57,6 +57,12 @@
                     </svg>
                     <span>Suppliers</span>
                 </li>
+                <li class="nav-item" data-page="purchases">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 9h7"/><path d="M18 13h-7"/><circle cx="9" cy="13" r="2"/><path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                    <span>Purchases</span>
+                </li>
                 <li class="nav-item" data-page="sales">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
@@ -309,13 +315,82 @@
                 <!-- Customers Page -->
                 <section class="page" id="customersPage">
                     <div class="page-header"><div class="filter-bar"><input type="text" id="customerSearch" class="text-input" placeholder="Search customers..."></div><button class="btn btn-primary" id="addCustomerBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Customer</button></div>
-                    <div class="customers-grid" id="customersGrid"><p class="empty-state">No customers found</p></div>
+                    <div class="table-container">
+                        <table class="data-table" id="customersTable">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Phone</th>
+                                    <th>Credit Limit</th>
+                                    <th>Credit Balance</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="customersBody">
+                                <tr><td colspan="6" class="empty-state">No customers found</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </section>
 
                 <!-- Suppliers Page -->
                 <section class="page" id="suppliersPage">
                     <div class="page-header"><div class="filter-bar"><input type="text" id="supplierSearch" class="text-input" placeholder="Search suppliers..."></div><button class="btn btn-primary" id="addSupplierBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Supplier</button></div>
-                    <div class="suppliers-grid" id="suppliersGrid"><p class="empty-state">No suppliers found</p></div>
+                    <div class="table-container">
+                        <table class="data-table" id="suppliersTable">
+                            <thead>
+                                <tr>
+                                    <th>Company</th>
+                                    <th>Contact</th>
+                                    <th>Phone</th>
+                                    <th>Email</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="suppliersBody">
+                                <tr><td colspan="5" class="empty-state">No suppliers found</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Purchases Page -->
+                <section class="page" id="purchasesPage">
+                    <div class="page-header">
+                        <div class="filter-bar">
+                            <input type="date" id="purchaseDateFrom" class="text-input">
+                            <input type="date" id="purchaseDateTo" class="text-input">
+                            <select id="purchaseSupplierFilter" class="select-input">
+                                <option value="">All Suppliers</option>
+                            </select>
+                            <button class="btn btn-secondary" id="filterPurchasesBtn">Filter</button>
+                        </div>
+                        <button class="btn btn-primary" id="addPurchaseBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19"/>
+                                <line x1="5" y1="12" x2="19" y2="12"/>
+                            </svg>
+                            Add Purchase
+                        </button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table" id="purchasesTable">
+                            <thead>
+                                <tr>
+                                    <th>Invoice #</th>
+                                    <th>Supplier</th>
+                                    <th>Total</th>
+                                    <th>Status</th>
+                                    <th>Date</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="purchasesBody">
+                                <tr><td colspan="6" class="empty-state">No purchases found</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </section>
 
                 <!-- Sales Page -->

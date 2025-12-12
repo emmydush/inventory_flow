@@ -18,8 +18,10 @@ try {
             id INTEGER PRIMARY KEY AUTO_INCREMENT,
             name VARCHAR(255) NOT NULL,
             description TEXT,
+            organization_id INT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
         )
     ");
 
@@ -33,9 +35,11 @@ try {
             stock_quantity INTEGER NOT NULL DEFAULT 0,
             sku VARCHAR(100),
             status VARCHAR(20) DEFAULT 'active',
+            organization_id INT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+            FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
         )
     ");
 
@@ -60,8 +64,10 @@ try {
             address TEXT,
             credit_limit DECIMAL(10, 2) DEFAULT 0.00,
             credit_balance DECIMAL(10, 2) DEFAULT 0.00,
+            organization_id INT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
         )
     ");
 
@@ -74,8 +80,10 @@ try {
             phone VARCHAR(50),
             address TEXT,
             notes TEXT,
+            organization_id INT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
         )
     ");
 
@@ -91,8 +99,10 @@ try {
             payment_method VARCHAR(50) DEFAULT 'cash',
             payment_status VARCHAR(20) DEFAULT 'paid',
             notes TEXT,
+            organization_id INT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
+            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
         )
     ");
 
@@ -105,9 +115,11 @@ try {
             quantity INTEGER NOT NULL,
             unit_price DECIMAL(10, 2) NOT NULL,
             total DECIMAL(10, 2) NOT NULL,
+            organization_id INT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
-            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
         )
     ");
 
@@ -121,10 +133,12 @@ try {
             balance DECIMAL(10, 2) NOT NULL,
             due_date DATE,
             status VARCHAR(20) DEFAULT 'pending',
+            organization_id INT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
-            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
         )
     ");
 
@@ -135,8 +149,10 @@ try {
             amount DECIMAL(10, 2) NOT NULL,
             payment_method VARCHAR(50) DEFAULT 'cash',
             notes TEXT,
+            organization_id INT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (credit_sale_id) REFERENCES credit_sales(id) ON DELETE CASCADE
+            FOREIGN KEY (credit_sale_id) REFERENCES credit_sales(id) ON DELETE CASCADE,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
         )
     ");
 
@@ -150,10 +166,12 @@ try {
             role VARCHAR(50) DEFAULT 'cashier',
             status VARCHAR(20) DEFAULT 'active',
             department_id INT NULL,
+            organization_id INT NULL,
             last_login TIMESTAMP NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
+            FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
         )
     ");
 
@@ -163,8 +181,10 @@ try {
             setting_key VARCHAR(100) NOT NULL UNIQUE,
             setting_value TEXT,
             setting_type VARCHAR(50) DEFAULT 'text',
+            organization_id INT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
         )
     ");
 
@@ -239,13 +259,29 @@ try {
         )
     ");
 
+    // Create organizations table
+    $conn->exec("
+        CREATE TABLE IF NOT EXISTS organizations (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(255) NOT NULL UNIQUE,
+            slug VARCHAR(100) NOT NULL UNIQUE,
+            description TEXT,
+            status ENUM('active', 'inactive') DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+    ");
+
+    // Create departments table with organization_id
     $conn->exec("
         CREATE TABLE IF NOT EXISTS departments (
             id INT AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(100) NOT NULL UNIQUE,
             description TEXT,
+            organization_id INT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
         )
     ");
 
@@ -264,61 +300,73 @@ try {
     ");
 
     // Add default data if not exists
+        
+        // Create default organization if none exists
+        $orgCheck = $conn->query("SELECT COUNT(*) FROM organizations")->fetchColumn();
+        if ($orgCheck == 0) {
+            $conn->exec("
+                INSERT INTO organizations (name, slug, description) VALUES 
+                ('Default Organization', 'default-org', 'Default organization for the system')
+            ");
+        }
+        
+        // Get the default organization ID
+        $defaultOrgId = $conn->query("SELECT id FROM organizations WHERE slug = 'default-org'")->fetchColumn();
     $categoriesCheck = $conn->query("SELECT COUNT(*) FROM categories")->fetchColumn();
     if ($categoriesCheck == 0) {
         $conn->exec("
-            INSERT INTO categories (name, description) VALUES 
-            ('Electronics', 'Electronic devices and accessories'),
-            ('Clothing', 'Apparel and fashion items'),
-            ('Home & Garden', 'Home improvement and garden supplies'),
-            ('Books', 'Books and educational materials'),
-            ('Sports', 'Sports equipment and accessories')
+            INSERT INTO categories (name, description, organization_id) VALUES 
+            ('Electronics', 'Electronic devices and accessories', $defaultOrgId),
+            ('Clothing', 'Apparel and fashion items', $defaultOrgId),
+            ('Home & Garden', 'Home improvement and garden supplies', $defaultOrgId),
+            ('Books', 'Books and educational materials', $defaultOrgId),
+            ('Sports', 'Sports equipment and accessories', $defaultOrgId)
         ");
     }
 
     $productsCheck = $conn->query("SELECT COUNT(*) FROM products")->fetchColumn();
     if ($productsCheck == 0) {
         $conn->exec("
-            INSERT INTO products (name, description, category_id, price, stock_quantity, sku) VALUES
-            ('iPhone 13 Pro', 'Latest Apple smartphone with advanced camera system', 1, 999.99, 25, 'IPH13PRO'),
-            ('Samsung Galaxy S22', 'Android flagship smartphone with excellent display', 1, 899.99, 30, 'SGS22'),
-            ('MacBook Pro 16\"', 'Professional laptop for creators and developers', 1, 2399.99, 15, 'MBP16'),
-            ('Nike Air Max 270', 'Comfortable running shoes with air cushioning', 2, 129.99, 50, 'NAM270'),
-            ('Levi''s 501 Jeans', 'Classic straight fit denim jeans', 2, 59.99, 100, 'LV501'),
-            ('Garden Hose 50ft', 'Durable rubber garden hose for watering plants', 3, 24.99, 75, 'GH50'),
-            ('Harry Potter Collection', 'Complete set of Harry Potter books', 4, 89.99, 40, 'HPSET'),
-            ('Yoga Mat', 'Non-slip yoga mat for exercise and meditation', 5, 29.99, 60, 'YMAT')
+            INSERT INTO products (name, description, category_id, price, stock_quantity, sku, organization_id) VALUES
+            ('iPhone 13 Pro', 'Latest Apple smartphone with advanced camera system', 1, 999.99, 25, 'IPH13PRO', $defaultOrgId),
+            ('Samsung Galaxy S22', 'Android flagship smartphone with excellent display', 1, 899.99, 30, 'SGS22', $defaultOrgId),
+            ('MacBook Pro 16\"', 'Professional laptop for creators and developers', 1, 2399.99, 15, 'MBP16', $defaultOrgId),
+            ('Nike Air Max 270', 'Comfortable running shoes with air cushioning', 2, 129.99, 50, 'NAM270', $defaultOrgId),
+            ('Levi''s 501 Jeans', 'Classic straight fit denim jeans', 2, 59.99, 100, 'LV501', $defaultOrgId),
+            ('Garden Hose 50ft', 'Durable rubber garden hose for watering plants', 3, 24.99, 75, 'GH50', $defaultOrgId),
+            ('Harry Potter Collection', 'Complete set of Harry Potter books', 4, 89.99, 40, 'HPSET', $defaultOrgId),
+            ('Yoga Mat', 'Non-slip yoga mat for exercise and meditation', 5, 29.99, 60, 'YMAT', $defaultOrgId)
         ");
     }
 
     $customersCheck = $conn->query("SELECT COUNT(*) FROM customers")->fetchColumn();
     if ($customersCheck == 0) {
         $conn->exec("
-            INSERT INTO customers (name, email, phone, address, credit_limit) VALUES
-            ('John Smith', 'john.smith@email.com', '(555) 123-4567', '123 Main St, Anytown, USA', 500.00),
-            ('Sarah Johnson', 'sarah.johnson@email.com', '(555) 987-6543', '456 Oak Ave, Somewhere, USA', 1000.00),
-            ('Mike Davis', 'mike.davis@email.com', '(555) 456-7890', '789 Pine Rd, Elsewhere, USA', 250.00)
+            INSERT INTO customers (name, email, phone, address, credit_limit, organization_id) VALUES
+            ('John Smith', 'john.smith@email.com', '(555) 123-4567', '123 Main St, Anytown, USA', 500.00, $defaultOrgId),
+            ('Sarah Johnson', 'sarah.johnson@email.com', '(555) 987-6543', '456 Oak Ave, Somewhere, USA', 1000.00, $defaultOrgId),
+            ('Mike Davis', 'mike.davis@email.com', '(555) 456-7890', '789 Pine Rd, Elsewhere, USA', 250.00, $defaultOrgId)
         ");
     }
 
     $suppliersCheck = $conn->query("SELECT COUNT(*) FROM suppliers")->fetchColumn();
     if ($suppliersCheck == 0) {
         $conn->exec("
-            INSERT INTO suppliers (name, contact_person, email, phone, address) VALUES
-            ('Tech Distributors Inc', 'Robert Brown', 'robert@techdist.com', '(555) 111-2222', '123 Tech Blvd, Electronics City, USA'),
-            ('Fashion Wholesale Co', 'Jennifer Lee', 'jennifer@fashionwholesale.com', '(555) 333-4444', '456 Fashion St, Apparel Town, USA'),
-            ('Garden Supply Co', 'Michael Green', 'michael@gardensupply.com', '(555) 555-6666', '789 Garden Ln, Green Valley, USA')
+            INSERT INTO suppliers (name, contact_person, email, phone, address, organization_id) VALUES
+            ('Tech Distributors Inc', 'Robert Brown', 'robert@techdist.com', '(555) 111-2222', '123 Tech Blvd, Electronics City, USA', $defaultOrgId),
+            ('Fashion Wholesale Co', 'Jennifer Lee', 'jennifer@fashionwholesale.com', '(555) 333-4444', '456 Fashion St, Apparel Town, USA', $defaultOrgId),
+            ('Garden Supply Co', 'Michael Green', 'michael@gardensupply.com', '(555) 555-6666', '789 Garden Ln, Green Valley, USA', $defaultOrgId)
         ");
     }
 
     $settingsCheck = $conn->query("SELECT COUNT(*) FROM settings")->fetchColumn();
     if ($settingsCheck == 0) {
         $conn->exec("
-            INSERT INTO settings (setting_key, setting_value, setting_type) VALUES
-            ('company_name', 'InventoryPro Demo', 'text'),
-            ('currency_symbol', '$', 'text'),
-            ('tax_rate', '8.5', 'number'),
-            ('low_stock_threshold', '10', 'number')
+            INSERT INTO settings (setting_key, setting_value, setting_type, organization_id) VALUES
+            ('company_name', 'InventoryPro Demo', 'text', $defaultOrgId),
+            ('currency_symbol', '$', 'text', $defaultOrgId),
+            ('tax_rate', '8.5', 'number', $defaultOrgId),
+            ('low_stock_threshold', '10', 'number', $defaultOrgId)
         ");
     }
 
@@ -326,8 +374,8 @@ try {
     if ($usersCheck == 0) {
         $defaultPassword = password_hash('admin123', PASSWORD_BCRYPT);
         $conn->exec("
-            INSERT INTO users (username, email, password_hash, full_name, role, status) VALUES
-            ('admin', 'admin@inventorypro.local', '$defaultPassword', 'Administrator', 'admin', 'active')
+            INSERT INTO users (username, email, password_hash, full_name, role, status, organization_id) VALUES
+            ('admin', 'admin@inventorypro.local', '$defaultPassword', 'Administrator', 'admin', 'active', $defaultOrgId)
         ");
     }
 
@@ -387,10 +435,10 @@ try {
     $departmentsCheck = $conn->query("SELECT COUNT(*) FROM departments")->fetchColumn();
     if ($departmentsCheck == 0) {
         $conn->exec("
-            INSERT INTO departments (name, description) VALUES 
-            ('Sales', 'Sales department'),
-            ('Inventory', 'Inventory management department'),
-            ('Administration', 'Administrative department')
+            INSERT INTO departments (name, description, organization_id) VALUES 
+            ('Sales', 'Sales department', $defaultOrgId),
+            ('Inventory', 'Inventory management department', $defaultOrgId),
+            ('Administration', 'Administrative department', $defaultOrgId)
         ");
     }
 

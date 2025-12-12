@@ -9,6 +9,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
+session_start();
+
 require_once __DIR__ . '/../config/database.php';
 
 $database = new Database();
@@ -20,27 +22,52 @@ if (!$conn) {
     exit;
 }
 
+// Check if user is authenticated
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+    exit;
+}
+
+// Get user information for data isolation
+$userInfo = [];
+try {
+    $stmt = $conn->prepare("SELECT u.id, u.role, u.department_id, u.organization_id, d.name as department_name FROM users u LEFT JOIN departments d ON u.department_id = d.id WHERE u.id = :user_id AND u.status = 'active'");
+    $stmt->execute(['user_id' => $_SESSION['user_id']]);
+    $userInfo = $stmt->fetch();
+    
+    if (!$userInfo) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'error' => 'User not found or inactive']);
+        exit;
+    }
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Error retrieving user information']);
+    exit;
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
     case 'GET':
         if (isset($_GET['id'])) {
-            getSale($conn, $_GET['id']);
+            getSale($conn, $_GET['id'], $userInfo);
         } else {
-            getSales($conn);
+            getSales($conn, $userInfo);
         }
         break;
     case 'POST':
-        createSale($conn);
+        createSale($conn, $userInfo);
         break;
     case 'DELETE':
-        deleteSale($conn);
+        deleteSale($conn, $userInfo);
         break;
     default:
         echo json_encode(['error' => 'Method not allowed']);
 }
 
-function getSales($conn) {
+function getSales($conn, $userInfo) {
     try {
         $dateFrom = isset($_GET['date_from']) ? $_GET['date_from'] : '';
         $dateTo = isset($_GET['date_to']) ? $_GET['date_to'] : '';
@@ -49,8 +76,8 @@ function getSales($conn) {
         $sql = "SELECT s.*, c.name as customer_name 
                 FROM sales s 
                 LEFT JOIN customers c ON s.customer_id = c.id 
-                WHERE 1=1";
-        $params = [];
+                WHERE s.organization_id = :organization_id";
+        $params = [':organization_id' => $userInfo['organization_id']];
         
         if (!empty($dateFrom)) {
             $sql .= " AND DATE(s.created_at) >= :date_from";
@@ -79,18 +106,18 @@ function getSales($conn) {
     }
 }
 
-function getSale($conn, $id) {
+function getSale($conn, $id, $userInfo) {
     try {
         $stmt = $conn->prepare("SELECT s.*, c.name as customer_name 
                                 FROM sales s 
                                 LEFT JOIN customers c ON s.customer_id = c.id 
-                                WHERE s.id = :id");
-        $stmt->execute([':id' => $id]);
+                                WHERE s.id = :id AND s.organization_id = :organization_id");
+        $stmt->execute([':id' => $id, ':organization_id' => $userInfo['organization_id']]);
         $sale = $stmt->fetch();
         
         if ($sale) {
-            $itemsStmt = $conn->prepare("SELECT * FROM sale_items WHERE sale_id = :sale_id");
-            $itemsStmt->execute([':sale_id' => $id]);
+            $itemsStmt = $conn->prepare("SELECT si.* FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE si.sale_id = :sale_id AND s.organization_id = :organization_id");
+            $itemsStmt->execute([':sale_id' => $id, ':organization_id' => $userInfo['organization_id']]);
             $sale['items'] = $itemsStmt->fetchAll();
             
             echo json_encode(['success' => true, 'data' => $sale]);
@@ -102,7 +129,7 @@ function getSale($conn, $id) {
     }
 }
 
-function createSale($conn) {
+function createSale($conn, $userInfo) {
     try {
         $data = json_decode(file_get_contents('php://input'), true);
         
@@ -130,8 +157,8 @@ function createSale($conn) {
         
         $paymentStatus = $data['payment_method'] === 'credit' ? 'pending' : 'paid';
         
-        $stmt = $conn->prepare("INSERT INTO sales (invoice_number, customer_id, subtotal, tax, discount, total, payment_method, payment_status, notes) 
-                                VALUES (:invoice_number, :customer_id, :subtotal, :tax, :discount, :total, :payment_method, :payment_status, :notes)");
+        $stmt = $conn->prepare("INSERT INTO sales (invoice_number, customer_id, subtotal, tax, discount, total, payment_method, payment_status, notes, organization_id) 
+                                VALUES (:invoice_number, :customer_id, :subtotal, :tax, :discount, :total, :payment_method, :payment_status, :notes, :organization_id)");
         $stmt->execute([
             ':invoice_number' => $invoiceNumber,
             ':customer_id' => $data['customer_id'] ?: null,
@@ -141,21 +168,23 @@ function createSale($conn) {
             ':total' => $data['total'],
             ':payment_method' => $data['payment_method'] ?? 'cash',
             ':payment_status' => $paymentStatus,
-            ':notes' => $data['notes'] ?? ''
+            ':notes' => $data['notes'] ?? '',
+            ':organization_id' => $userInfo['organization_id']
         ]);
         
         $saleId = $conn->lastInsertId();
         
         foreach ($data['items'] as $item) {
-            $itemStmt = $conn->prepare("INSERT INTO sale_items (sale_id, product_id, product_name, quantity, unit_price, total) 
-                                        VALUES (:sale_id, :product_id, :product_name, :quantity, :unit_price, :total)");
+            $itemStmt = $conn->prepare("INSERT INTO sale_items (sale_id, product_id, product_name, quantity, unit_price, total, organization_id) 
+                                        VALUES (:sale_id, :product_id, :product_name, :quantity, :unit_price, :total, :organization_id)");
             $itemStmt->execute([
                 ':sale_id' => $saleId,
                 ':product_id' => $item['product_id'],
                 ':product_name' => $item['product_name'],
                 ':quantity' => $item['quantity'],
                 ':unit_price' => $item['unit_price'],
-                ':total' => $item['total']
+                ':total' => $item['total'],
+                ':organization_id' => $userInfo['organization_id']
             ]);
             
             $updateStock = $conn->prepare("UPDATE products SET quantity = quantity - :qty, updated_at = CURRENT_TIMESTAMP WHERE id = :id");
@@ -171,15 +200,16 @@ function createSale($conn) {
         }
         
         if ($data['payment_method'] === 'credit' && $data['customer_id']) {
-            $creditStmt = $conn->prepare("INSERT INTO credit_sales (sale_id, customer_id, amount, balance, due_date, status) 
-                                          VALUES (:sale_id, :customer_id, :amount, :balance, :due_date, 'pending')");
+            $creditStmt = $conn->prepare("INSERT INTO credit_sales (sale_id, customer_id, amount, balance, due_date, status, organization_id) 
+                                          VALUES (:sale_id, :customer_id, :amount, :balance, :due_date, 'pending', :organization_id)");
             $dueDate = date('Y-m-d', strtotime('+30 days'));
             $creditStmt->execute([
                 ':sale_id' => $saleId,
                 ':customer_id' => $data['customer_id'],
                 ':amount' => $data['total'],
                 ':balance' => $data['total'],
-                ':due_date' => $dueDate
+                ':due_date' => $dueDate,
+                ':organization_id' => $userInfo['organization_id']
             ]);
             
             $updateCustomer = $conn->prepare("UPDATE customers SET credit_balance = credit_balance + :amount WHERE id = :id");
@@ -195,12 +225,12 @@ function createSale($conn) {
     }
 }
 
-function deleteSale($conn) {
+function deleteSale($conn, $userInfo) {
     try {
         $data = json_decode(file_get_contents('php://input'), true);
         
-        $stmt = $conn->prepare("DELETE FROM sales WHERE id = :id");
-        $stmt->execute([':id' => $data['id']]);
+        $stmt = $conn->prepare("DELETE FROM sales WHERE id = :id AND organization_id = :organization_id");
+        $stmt->execute([':id' => $data['id'], ':organization_id' => $userInfo['organization_id']]);
         
         echo json_encode(['success' => true, 'message' => 'Sale deleted successfully']);
     } catch(PDOException $e) {

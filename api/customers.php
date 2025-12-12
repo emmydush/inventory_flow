@@ -32,7 +32,14 @@ if (!isset($_SESSION['user_id'])) {
 // Get user information for data isolation
 $userInfo = [];
 try {
-    $stmt = $conn->prepare("SELECT u.role, u.department_id, d.name as department_name 
+    // Check if user_id is set in session
+    if (!isset($_SESSION['user_id'])) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'error' => 'User not authenticated']);
+        exit;
+    }
+    
+    $stmt = $conn->prepare("SELECT u.id, u.role, u.department_id, u.organization_id, d.name as department_name 
                            FROM users u 
                            LEFT JOIN departments d ON u.department_id = d.id 
                            WHERE u.id = :user_id AND u.status = 'active'");
@@ -44,9 +51,13 @@ try {
         echo json_encode(['success' => false, 'error' => 'User not found or inactive']);
         exit;
     }
+    
+    // Add user id to userInfo for use in other functions
+    $userInfo['id'] = $_SESSION['user_id'];
 } catch (Exception $e) {
+    error_log("Error retrieving user information: " . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Error retrieving user information']);
+    echo json_encode(['success' => false, 'error' => 'Error retrieving user information: ' . $e->getMessage()]);
     exit;
 }
 
@@ -83,8 +94,8 @@ function getCustomers($conn, $userInfo) {
                     WHEN c.created_by = :current_user_id THEN 'own'
                     ELSE 'shared'
                 END as ownership_level
-                FROM customers c WHERE 1=1";
-        $params = [':current_user_id' => $userInfo['id']];
+                FROM customers c WHERE c.organization_id = :organization_id";
+        $params = [':current_user_id' => $userInfo['id'], ':organization_id' => $userInfo['organization_id']];
         
         // Apply data isolation based on user permissions
         if ($userInfo['role'] !== 'admin') {
@@ -150,27 +161,18 @@ function getCustomers($conn, $userInfo) {
 
 function getCustomer($conn, $id) {
     try {
-        // First check if user has permission to view this customer
-        if (!isset($_SESSION['user_id'])) {
-            http_response_code(401);
-            echo json_encode(['success' => false, 'error' => 'Unauthorized']);
-            return;
-        }
+        global $userInfo;
         
-        // Get user information
-        $stmt = $conn->prepare("SELECT u.role, u.department_id FROM users u WHERE u.id = ? AND u.status = 'active'");
-        $stmt->execute([$_SESSION['user_id']]);
-        $userInfo = $stmt->fetch();
-        
+        // Check if user information is available
         if (!$userInfo) {
             http_response_code(401);
-            echo json_encode(['success' => false, 'error' => 'User not found or inactive']);
+            echo json_encode(['success' => false, 'error' => 'User not authenticated']);
             return;
         }
         
         // First get the customer
-        $stmt = $conn->prepare("SELECT * FROM customers WHERE id = ?");
-        $stmt->execute([$id]);
+        $stmt = $conn->prepare("SELECT * FROM customers WHERE id = ? AND organization_id = ?");
+        $stmt->execute([$id, $userInfo['organization_id']]);
         $customer = $stmt->fetch();
         
         if (!$customer) {
@@ -188,7 +190,7 @@ function getCustomer($conn, $id) {
             
             // Check individual permissions
             $indPermStmt = $conn->prepare("SELECT granted FROM individual_permissions WHERE user_id = ? AND permission = 'view_all_data'");
-            $indPermStmt->execute([$_SESSION['user_id']]);
+            $indPermStmt->execute([$userInfo['id']]);
             $individualPermission = $indPermStmt->fetch();
             
             if ($individualPermission) {
@@ -215,7 +217,7 @@ function getCustomer($conn, $id) {
                 $canView = false;
                 
                 // Check if user owns the customer
-                if (isset($customer['created_by']) && $customer['created_by'] == $_SESSION['user_id']) {
+                if (isset($customer['created_by']) && $customer['created_by'] == $userInfo['id']) {
                     $canView = true;
                 }
                 // Check if user can view department data and customer belongs to same department
@@ -245,6 +247,15 @@ function getCustomer($conn, $id) {
 
 function createCustomer($conn) {
     try {
+        global $userInfo;
+        
+        // Check if user information is available
+        if (!$userInfo) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'error' => 'User not authenticated']);
+            return;
+        }
+        
         $input = file_get_contents('php://input');
         $data = json_decode($input, true);
 
@@ -259,15 +270,16 @@ function createCustomer($conn) {
         }
 
         // Add created_by field to track ownership
-        $stmt = $conn->prepare("INSERT INTO customers (name, email, phone, address, credit_limit, created_by) 
-                                VALUES (:name, :email, :phone, :address, :credit_limit, :created_by)");
+        $stmt = $conn->prepare("INSERT INTO customers (name, email, phone, address, credit_limit, created_by, organization_id) 
+                                VALUES (:name, :email, :phone, :address, :credit_limit, :created_by, :organization_id)");
         $stmt->execute([
             ':name' => $data['name'],
             ':email' => $data['email'] ?? '',
             ':phone' => $data['phone'] ?? '',
             ':address' => $data['address'] ?? '',
             ':credit_limit' => $data['credit_limit'] ?? 0,
-            ':created_by' => $_SESSION['user_id']
+            ':created_by' => $userInfo['id'],
+            ':organization_id' => $userInfo['organization_id']
         ]);
         
         $customerId = $conn->lastInsertId();
@@ -275,7 +287,7 @@ function createCustomer($conn) {
         // Log the activity
         $activityStmt = $conn->prepare("INSERT INTO activity_logs (user_id, action, entity_type, entity_id, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)");
         $activityStmt->execute([
-            $_SESSION['user_id'],
+            $userInfo['id'],
             'create',
             'customer',
             $customerId,
@@ -292,6 +304,15 @@ function createCustomer($conn) {
 
 function updateCustomer($conn) {
     try {
+        global $userInfo;
+        
+        // Check if user information is available
+        if (!$userInfo) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'error' => 'User not authenticated']);
+            return;
+        }
+        
         $input = file_get_contents('php://input');
         $data = json_decode($input, true);
 
@@ -302,24 +323,6 @@ function updateCustomer($conn) {
 
         if (!isset($data['id']) || !isset($data['name']) || empty($data['name'])) {
             echo json_encode(['success' => false, 'error' => 'Customer ID and name are required']);
-            return;
-        }
-        
-        // First check if user has permission to update this customer
-        if (!isset($_SESSION['user_id'])) {
-            http_response_code(401);
-            echo json_encode(['success' => false, 'error' => 'Unauthorized']);
-            return;
-        }
-        
-        // Get user information
-        $stmt = $conn->prepare("SELECT u.role, u.department_id FROM users u WHERE u.id = ? AND u.status = 'active'");
-        $stmt->execute([$_SESSION['user_id']]);
-        $userInfo = $stmt->fetch();
-        
-        if (!$userInfo) {
-            http_response_code(401);
-            echo json_encode(['success' => false, 'error' => 'User not found or inactive']);
             return;
         }
         
@@ -370,7 +373,7 @@ function updateCustomer($conn) {
                 $canUpdate = false;
                 
                 // Check if user owns the customer
-                if ($customer['created_by'] == $_SESSION['user_id']) {
+                if ($customer['created_by'] == $userInfo['id']) {
                     $canUpdate = true;
                 }
                 // Check if user can manage department data and customer belongs to same department
@@ -408,7 +411,7 @@ function updateCustomer($conn) {
         // Log the activity
         $activityStmt = $conn->prepare("INSERT INTO activity_logs (user_id, action, entity_type, entity_id, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)");
         $activityStmt->execute([
-            $_SESSION['user_id'],
+            $userInfo['id'],
             'update',
             'customer',
             $data['id'],
@@ -425,29 +428,20 @@ function updateCustomer($conn) {
 
 function deleteCustomer($conn) {
     try {
+        global $userInfo;
+        
+        // Check if user information is available
+        if (!$userInfo) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'error' => 'User not authenticated']);
+            return;
+        }
+        
         $input = file_get_contents('php://input');
         $data = json_decode($input, true);
 
         if (!$data || !isset($data['id'])) {
             echo json_encode(['success' => false, 'error' => 'Customer ID is required']);
-            return;
-        }
-        
-        // First check if user has permission to delete this customer
-        if (!isset($_SESSION['user_id'])) {
-            http_response_code(401);
-            echo json_encode(['success' => false, 'error' => 'Unauthorized']);
-            return;
-        }
-        
-        // Get user information
-        $stmt = $conn->prepare("SELECT u.role, u.department_id FROM users u WHERE u.id = ? AND u.status = 'active'");
-        $stmt->execute([$_SESSION['user_id']]);
-        $userInfo = $stmt->fetch();
-        
-        if (!$userInfo) {
-            http_response_code(401);
-            echo json_encode(['success' => false, 'error' => 'User not found or inactive']);
             return;
         }
         
@@ -471,7 +465,7 @@ function deleteCustomer($conn) {
             
             // Check individual permissions
             $indPermStmt = $conn->prepare("SELECT granted FROM individual_permissions WHERE user_id = ? AND permission = 'manage_customers'");
-            $indPermStmt->execute([$_SESSION['user_id']]);
+            $indPermStmt->execute([$userInfo['id']]);
             $individualPermission = $indPermStmt->fetch();
             
             if ($individualPermission) {
@@ -486,7 +480,7 @@ function deleteCustomer($conn) {
             
             // Check individual permissions for delete records
             $indPermStmt = $conn->prepare("SELECT granted FROM individual_permissions WHERE user_id = ? AND permission = 'delete_records'");
-            $indPermStmt->execute([$_SESSION['user_id']]);
+            $indPermStmt->execute([$userInfo['id']]);
             $individualDeletePermission = $indPermStmt->fetch();
             
             if ($individualDeletePermission) {
@@ -496,14 +490,14 @@ function deleteCustomer($conn) {
             // If user doesn't have manage_customers or delete_records permission, check ownership
             if (!$hasManagePermission && !$hasDeletePermission) {
                 // Check department-level permission
-                $permStmt = $conn->prepare("SELECT COUNT(*) FROM user_permissions WHERE role = ? AND permission = 'delete_records'");
+                $permStmt = $conn->prepare("SELECT COUNT(*) FROM user_permissions WHERE role = ? AND permission = 'view_department_data'");
                 $permStmt->execute([$userInfo['role']]);
                 
                 $hasDeptPermission = $permStmt->fetchColumn() > 0;
                 
                 // Check individual permissions for department data
-                $indPermStmt = $conn->prepare("SELECT granted FROM individual_permissions WHERE user_id = ? AND permission = 'delete_records'");
-                $indPermStmt->execute([$_SESSION['user_id']]);
+                $indPermStmt = $conn->prepare("SELECT granted FROM individual_permissions WHERE user_id = ? AND permission = 'view_department_data'");
+                $indPermStmt->execute([$userInfo['id']]);
                 $individualDeptPermission = $indPermStmt->fetch();
                 
                 if ($individualDeptPermission) {
@@ -513,10 +507,10 @@ function deleteCustomer($conn) {
                 $canDelete = false;
                 
                 // Check if user owns the customer
-                if ($customer['created_by'] == $_SESSION['user_id']) {
+                if ($customer['created_by'] == $userInfo['id']) {
                     $canDelete = true;
                 }
-                // Check if user can delete department data and customer belongs to same department
+                // Check if user can manage department data and customer belongs to same department
                 else if ($hasDeptPermission && $userInfo['department_id']) {
                     $creatorStmt = $conn->prepare("SELECT department_id FROM users WHERE id = ?");
                     $creatorStmt->execute([$customer['created_by']]);
@@ -541,7 +535,7 @@ function deleteCustomer($conn) {
         // Log the activity
         $activityStmt = $conn->prepare("INSERT INTO activity_logs (user_id, action, entity_type, entity_id, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)");
         $activityStmt->execute([
-            $_SESSION['user_id'],
+            $userInfo['id'],
             'delete',
             'customer',
             $data['id'],

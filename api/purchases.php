@@ -52,35 +52,39 @@ $method = $_SERVER['REQUEST_METHOD'];
 switch ($method) {
     case 'GET':
         if (isset($_GET['id'])) {
-            getSupplier($conn, $_GET['id'], $userInfo);
+            getPurchase($conn, $_GET['id'], $userInfo);
         } else {
-            getSuppliers($conn, $userInfo);
+            getPurchases($conn, $userInfo);
         }
         break;
     case 'POST':
-        createSupplier($conn, $userInfo);
+        createPurchase($conn, $userInfo);
         break;
     case 'PUT':
-        updateSupplier($conn, $userInfo);
+        updatePurchase($conn, $userInfo);
         break;
     case 'DELETE':
-        deleteSupplier($conn, $userInfo);
+        deletePurchase($conn, $userInfo);
         break;
     default:
         echo json_encode(['error' => 'Method not allowed']);
 }
 
-function getSuppliers($conn, $userInfo) {
+function getPurchases($conn, $userInfo) {
     try {
-        $search = isset($_GET['search']) ? $_GET['search'] : '';
+        $dateFrom = isset($_GET['date_from']) ? $_GET['date_from'] : '';
+        $dateTo = isset($_GET['date_to']) ? $_GET['date_to'] : '';
+        $supplierId = isset($_GET['supplier_id']) ? $_GET['supplier_id'] : '';
         
         // Base SQL query
-        $sql = "SELECT s.*, 
+        $sql = "SELECT p.*, s.name as supplier_name,
                 CASE 
-                    WHEN s.created_by = :current_user_id THEN 'own'
+                    WHEN p.created_by = :current_user_id THEN 'own'
                     ELSE 'shared'
                 END as ownership_level
-                FROM suppliers s WHERE s.organization_id = :organization_id";
+                FROM purchases p 
+                LEFT JOIN suppliers s ON p.supplier_id = s.id 
+                WHERE p.organization_id = :organization_id";
         $params = [':current_user_id' => $userInfo['id'], ':organization_id' => $userInfo['organization_id']];
         
         // Apply data isolation based on user permissions
@@ -118,42 +122,52 @@ function getSuppliers($conn, $userInfo) {
                 }
                 
                 if ($hasDeptPermission && $userInfo['department_id']) {
-                    // View department data - users can see suppliers created by users in their department
-                    $sql .= " AND (s.created_by = :current_user_id OR s.created_by IN (SELECT id FROM users WHERE department_id = :department_id))";
+                    // View department data - users can see purchases created by users in their department
+                    $sql .= " AND (p.created_by = :current_user_id OR p.created_by IN (SELECT id FROM users WHERE department_id = :department_id))";
                     $params[':department_id'] = $userInfo['department_id'];
                 } else {
                     // View own data only
-                    $sql .= " AND s.created_by = :current_user_id";
+                    $sql .= " AND p.created_by = :current_user_id";
                 }
             }
         }
         
-        if (!empty($search)) {
-            $sql .= " AND (s.name LIKE :search OR s.contact_person LIKE :search OR s.email LIKE :search)";
-            $params[':search'] = '%' . $search . '%';
+        if (!empty($dateFrom)) {
+            $sql .= " AND DATE(p.created_at) >= :date_from";
+            $params[':date_from'] = $dateFrom;
         }
         
-        $sql .= " ORDER BY s.name ASC";
+        if (!empty($dateTo)) {
+            $sql .= " AND DATE(p.created_at) <= :date_to";
+            $params[':date_to'] = $dateTo;
+        }
+        
+        if (!empty($supplierId)) {
+            $sql .= " AND p.supplier_id = :supplier_id";
+            $params[':supplier_id'] = $supplierId;
+        }
+        
+        $sql .= " ORDER BY p.created_at DESC";
         
         $stmt = $conn->prepare($sql);
         $stmt->execute($params);
-        $suppliers = $stmt->fetchAll();
+        $purchases = $stmt->fetchAll();
         
-        echo json_encode(['success' => true, 'data' => $suppliers]);
+        echo json_encode(['success' => true, 'data' => $purchases]);
     } catch(PDOException $e) {
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }
 
-function getSupplier($conn, $id, $userInfo) {
+function getPurchase($conn, $id, $userInfo) {
     try {
-        // First get the supplier to check ownership
-        $stmt = $conn->prepare("SELECT * FROM suppliers WHERE id = :id AND organization_id = :organization_id");
+        // First get the purchase to check ownership
+        $stmt = $conn->prepare("SELECT * FROM purchases WHERE id = :id AND organization_id = :organization_id");
         $stmt->execute([':id' => $id, ':organization_id' => $userInfo['organization_id']]);
-        $supplier = $stmt->fetch();
+        $purchase = $stmt->fetch();
         
-        if (!$supplier) {
-            echo json_encode(['success' => false, 'error' => 'Supplier not found']);
+        if (!$purchase) {
+            echo json_encode(['success' => false, 'error' => 'Purchase not found']);
             return;
         }
         
@@ -193,14 +207,14 @@ function getSupplier($conn, $id, $userInfo) {
                 
                 $canView = false;
                 
-                // Check if user owns the supplier
-                if (isset($supplier['created_by']) && $supplier['created_by'] == $userInfo['id']) {
+                // Check if user owns the purchase
+                if (isset($purchase['created_by']) && $purchase['created_by'] == $userInfo['id']) {
                     $canView = true;
                 }
-                // Check if user can view department data and supplier belongs to same department
+                // Check if user can view department data and purchase belongs to same department
                 else if ($hasDeptPermission && $userInfo['department_id']) {
                     $creatorStmt = $conn->prepare("SELECT department_id FROM users WHERE id = ?");
-                    $creatorStmt->execute([$supplier['created_by']]);
+                    $creatorStmt->execute([$purchase['created_by']]);
                     $creator = $creatorStmt->fetch();
                     
                     if ($creator && $creator['department_id'] == $userInfo['department_id']) {
@@ -216,13 +230,20 @@ function getSupplier($conn, $id, $userInfo) {
             }
         }
         
-        echo json_encode(['success' => true, 'data' => $supplier]);
+        // Get purchase items
+        $itemsStmt = $conn->prepare("SELECT * FROM purchase_items WHERE purchase_id = ?");
+        $itemsStmt->execute([$id]);
+        $items = $itemsStmt->fetchAll();
+        
+        $purchase['items'] = $items;
+        
+        echo json_encode(['success' => true, 'data' => $purchase]);
     } catch(PDOException $e) {
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }
 
-function createSupplier($conn, $userInfo) {
+function createPurchase($conn, $userInfo) {
     try {
         $input = file_get_contents('php://input');
         $data = json_decode($input, true);
@@ -232,46 +253,113 @@ function createSupplier($conn, $userInfo) {
             return;
         }
 
-        if (!isset($data['name']) || empty($data['name'])) {
-            echo json_encode(['success' => false, 'error' => 'Supplier name is required']);
+        if (!isset($data['supplier_id']) || empty($data['supplier_id'])) {
+            echo json_encode(['success' => false, 'error' => 'Supplier is required']);
             return;
         }
 
-        // Add created_by field to track ownership
-        $stmt = $conn->prepare("INSERT INTO suppliers (name, contact_person, email, phone, address, notes, created_by, organization_id)
-                                VALUES (:name, :contact_person, :email, :phone, :address, :notes, :created_by, :organization_id)");
+        if (!isset($data['items']) || !is_array($data['items']) || count($data['items']) == 0) {
+            echo json_encode(['success' => false, 'error' => 'At least one item is required']);
+            return;
+        }
+
+        // Validate items
+        foreach ($data['items'] as $item) {
+            if (!isset($item['product_id']) || !isset($item['quantity']) || !isset($item['unit_price'])) {
+                echo json_encode(['success' => false, 'error' => 'Each item must have product_id, quantity, and unit_price']);
+                return;
+            }
+            
+            if ($item['quantity'] <= 0 || $item['unit_price'] < 0) {
+                echo json_encode(['success' => false, 'error' => 'Item quantity must be positive and unit price must be non-negative']);
+                return;
+            }
+        }
+
+        // Generate invoice number
+        $invoiceNumber = 'PUR-' . date('Ymd') . '-' . strtoupper(substr(md5(time()), 0, 6));
+
+        // Calculate totals
+        $subtotal = 0;
+        foreach ($data['items'] as $item) {
+            $subtotal += $item['quantity'] * $item['unit_price'];
+        }
+        
+        $tax = isset($data['tax']) ? $data['tax'] : 0;
+        $discount = isset($data['discount']) ? $data['discount'] : 0;
+        $total = $subtotal + $tax - $discount;
+
+        // Insert purchase
+        $stmt = $conn->prepare("INSERT INTO purchases (invoice_number, supplier_id, subtotal, tax, discount, total, payment_method, payment_status, notes, created_by, organization_id) 
+                                VALUES (:invoice_number, :supplier_id, :subtotal, :tax, :discount, :total, :payment_method, :payment_status, :notes, :created_by, :organization_id)");
         $stmt->execute([
-            ':name' => $data['name'],
-            ':contact_person' => $data['contact_person'] ?? '',
-            ':email' => $data['email'] ?? '',
-            ':phone' => $data['phone'] ?? '',
-            ':address' => $data['address'] ?? '',
+            ':invoice_number' => $invoiceNumber,
+            ':supplier_id' => $data['supplier_id'],
+            ':subtotal' => $subtotal,
+            ':tax' => $tax,
+            ':discount' => $discount,
+            ':total' => $total,
+            ':payment_method' => $data['payment_method'] ?? 'cash',
+            ':payment_status' => $data['payment_status'] ?? 'pending',
             ':notes' => $data['notes'] ?? '',
             ':created_by' => $userInfo['id'],
             ':organization_id' => $userInfo['organization_id']
         ]);
-
-        $supplierId = $conn->lastInsertId();
+        
+        $purchaseId = $conn->lastInsertId();
+        
+        // Insert purchase items and update product quantities
+        foreach ($data['items'] as $item) {
+            // Get product name
+            $prodStmt = $conn->prepare("SELECT name FROM products WHERE id = ?");
+            $prodStmt->execute([$item['product_id']]);
+            $product = $prodStmt->fetch();
+            
+            if (!$product) {
+                // Rollback by deleting the purchase
+                $delStmt = $conn->prepare("DELETE FROM purchases WHERE id = ?");
+                $delStmt->execute([$purchaseId]);
+                
+                echo json_encode(['success' => false, 'error' => 'Product not found: ' . $item['product_id']]);
+                return;
+            }
+            
+            $itemName = $product['name'];
+            $itemTotal = $item['quantity'] * $item['unit_price'];
+            
+            // Insert purchase item
+            $itemStmt = $conn->prepare("INSERT INTO purchase_items (purchase_id, product_id, product_name, quantity, unit_price, total, organization_id) 
+                                       VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $itemStmt->execute([$purchaseId, $item['product_id'], $itemName, $item['quantity'], $item['unit_price'], $itemTotal, $userInfo['organization_id']]);
+            
+            // Update product quantity (increase stock)
+            $updStmt = $conn->prepare("UPDATE products SET quantity = quantity + ? WHERE id = ?");
+            $updStmt->execute([$item['quantity'], $item['product_id']]);
+            
+            // Log stock transaction
+            $logStmt = $conn->prepare("INSERT INTO stock_transactions (product_id, type, quantity, notes) VALUES (?, ?, ?, ?)");
+            $logStmt->execute([$item['product_id'], 'add', $item['quantity'], 'Purchase #' . $invoiceNumber]);
+        }
         
         // Log the activity
         $activityStmt = $conn->prepare("INSERT INTO activity_logs (user_id, action, entity_type, entity_id, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)");
         $activityStmt->execute([
             $userInfo['id'],
             'create',
-            'supplier',
-            $supplierId,
+            'purchase',
+            $purchaseId,
             $_SERVER['REMOTE_ADDR'] ?? null,
             $_SERVER['HTTP_USER_AGENT'] ?? null
         ]);
-
-        echo json_encode(['success' => true, 'id' => $supplierId, 'message' => 'Supplier created successfully']);
+        
+        echo json_encode(['success' => true, 'id' => $purchaseId, 'invoice_number' => $invoiceNumber, 'message' => 'Purchase created successfully']);
     } catch(PDOException $e) {
-        error_log('Create supplier error: ' . $e->getMessage());
+        error_log('Create purchase error: ' . $e->getMessage());
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }
 
-function updateSupplier($conn, $userInfo) {
+function updatePurchase($conn, $userInfo) {
     try {
         $input = file_get_contents('php://input');
         $data = json_decode($input, true);
@@ -281,31 +369,31 @@ function updateSupplier($conn, $userInfo) {
             return;
         }
 
-        if (!isset($data['id']) || !isset($data['name']) || empty($data['name'])) {
-            echo json_encode(['success' => false, 'error' => 'Supplier ID and name are required']);
+        if (!isset($data['id'])) {
+            echo json_encode(['success' => false, 'error' => 'Purchase ID is required']);
             return;
         }
-        
-        // Check if user has permission to update this supplier
+
+        // Check if user has permission to update this purchase
         if ($userInfo['role'] !== 'admin') {
-            // First get the supplier to check ownership
-            $checkStmt = $conn->prepare("SELECT created_by FROM suppliers WHERE id = ? AND organization_id = ?");
+            // First get the purchase to check ownership
+            $checkStmt = $conn->prepare("SELECT created_by FROM purchases WHERE id = ? AND organization_id = ?");
             $checkStmt->execute([$data['id'], $userInfo['organization_id']]);
-            $supplier = $checkStmt->fetch();
+            $purchase = $checkStmt->fetch();
             
-            if (!$supplier) {
-                echo json_encode(['success' => false, 'error' => 'Supplier not found']);
+            if (!$purchase) {
+                echo json_encode(['success' => false, 'error' => 'Purchase not found']);
                 return;
             }
             
             // Check if user has permission to manage all data
-            $permStmt = $conn->prepare("SELECT COUNT(*) FROM user_permissions WHERE role = ? AND permission = 'manage_suppliers'");
+            $permStmt = $conn->prepare("SELECT COUNT(*) FROM user_permissions WHERE role = ? AND permission = 'manage_purchases'");
             $permStmt->execute([$userInfo['role']]);
             
             $hasManagePermission = $permStmt->fetchColumn() > 0;
             
             // Check individual permissions
-            $indPermStmt = $conn->prepare("SELECT granted FROM individual_permissions WHERE user_id = ? AND permission = 'manage_suppliers'");
+            $indPermStmt = $conn->prepare("SELECT granted FROM individual_permissions WHERE user_id = ? AND permission = 'manage_purchases'");
             $indPermStmt->execute([$userInfo['id']]);
             $individualPermission = $indPermStmt->fetch();
             
@@ -313,7 +401,7 @@ function updateSupplier($conn, $userInfo) {
                 $hasManagePermission = $individualPermission['granted'] == 1;
             }
             
-            // If user doesn't have manage_suppliers permission, check ownership
+            // If user doesn't have manage_purchases permission, check ownership
             if (!$hasManagePermission) {
                 // Check department-level permission
                 $permStmt = $conn->prepare("SELECT COUNT(*) FROM user_permissions WHERE role = ? AND permission = 'view_department_data'");
@@ -332,14 +420,14 @@ function updateSupplier($conn, $userInfo) {
                 
                 $canUpdate = false;
                 
-                // Check if user owns the supplier
-                if ($supplier['created_by'] == $userInfo['id']) {
+                // Check if user owns the purchase
+                if ($purchase['created_by'] == $userInfo['id']) {
                     $canUpdate = true;
                 }
-                // Check if user can manage department data and supplier belongs to same department
+                // Check if user can manage department data and purchase belongs to same department
                 else if ($hasDeptPermission && $userInfo['department_id']) {
                     $creatorStmt = $conn->prepare("SELECT department_id FROM users WHERE id = ?");
-                    $creatorStmt->execute([$supplier['created_by']]);
+                    $creatorStmt->execute([$purchase['created_by']]);
                     $creator = $creatorStmt->fetch();
                     
                     if ($creator && $creator['department_id'] == $userInfo['department_id']) {
@@ -355,69 +443,79 @@ function updateSupplier($conn, $userInfo) {
             }
         }
 
-        $stmt = $conn->prepare("UPDATE suppliers
-                                SET name = :name, contact_person = :contact_person, email = :email,
-                                    phone = :phone, address = :address, notes = :notes, updated_at = CURRENT_TIMESTAMP
-                                WHERE id = :id AND organization_id = :organization_id");
-        $stmt->execute([
-            ':id' => $data['id'],
-            ':organization_id' => $userInfo['organization_id'],
-            ':name' => $data['name'],
-            ':contact_person' => $data['contact_person'] ?? '',
-            ':email' => $data['email'] ?? '',
-            ':phone' => $data['phone'] ?? '',
-            ':address' => $data['address'] ?? '',
-            ':notes' => $data['notes'] ?? ''
-        ]);
+        // Update purchase
+        $fields = [];
+        $params = [];
+        
+        if (isset($data['payment_status'])) {
+            $fields[] = "payment_status = ?";
+            $params[] = $data['payment_status'];
+        }
+        
+        if (isset($data['notes'])) {
+            $fields[] = "notes = ?";
+            $params[] = $data['notes'];
+        }
+        
+        if (empty($fields)) {
+            echo json_encode(['success' => false, 'error' => 'No fields to update']);
+            return;
+        }
+        
+        $params[] = $data['id'];
+        $params[] = $userInfo['organization_id'];
+        $sql = "UPDATE purchases SET " . implode(", ", $fields) . " WHERE id = ? AND organization_id = ?";
+        
+        $stmt = $conn->prepare($sql);
+        $stmt->execute($params);
         
         // Log the activity
         $activityStmt = $conn->prepare("INSERT INTO activity_logs (user_id, action, entity_type, entity_id, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)");
         $activityStmt->execute([
             $userInfo['id'],
             'update',
-            'supplier',
+            'purchase',
             $data['id'],
             $_SERVER['REMOTE_ADDR'] ?? null,
             $_SERVER['HTTP_USER_AGENT'] ?? null
         ]);
-
-        echo json_encode(['success' => true, 'message' => 'Supplier updated successfully']);
+        
+        echo json_encode(['success' => true, 'message' => 'Purchase updated successfully']);
     } catch(PDOException $e) {
-        error_log('Update supplier error: ' . $e->getMessage());
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }
 
-function deleteSupplier($conn, $userInfo) {
+function deletePurchase($conn, $userInfo) {
     try {
         $input = file_get_contents('php://input');
         $data = json_decode($input, true);
 
         if (!$data || !isset($data['id'])) {
-            echo json_encode(['success' => false, 'error' => 'Supplier ID is required']);
+            echo json_encode(['success' => false, 'error' => 'Purchase ID is required']);
             return;
         }
-        
-        // Check if user has permission to delete this supplier
+
+        // Check if user has permission to delete this purchase
         if ($userInfo['role'] !== 'admin') {
-            // First get the supplier to check ownership
-            $checkStmt = $conn->prepare("SELECT created_by FROM suppliers WHERE id = ? AND organization_id = ?");
+            // First get the purchase to check ownership
+            $checkStmt = $conn->prepare("SELECT created_by FROM purchases WHERE id = ? AND organization_id = ?");
             $checkStmt->execute([$data['id'], $userInfo['organization_id']]);
-            $supplier = $checkStmt->fetch();
+            $purchase = $checkStmt->fetch();
             
-            if (!$supplier) {
-                echo json_encode(['success' => false, 'error' => 'Supplier not found']);
+            if (!$purchase) {
+                echo json_encode(['success' => false, 'error' => 'Purchase not found']);
                 return;
             }
             
             // Check if user has permission to manage all data
-            $permStmt = $conn->prepare("SELECT COUNT(*) FROM user_permissions WHERE role = ? AND permission = 'manage_suppliers'");
+            $permStmt = $conn->prepare("SELECT COUNT(*) FROM user_permissions WHERE role = ? AND permission = 'manage_purchases'");
             $permStmt->execute([$userInfo['role']]);
             
             $hasManagePermission = $permStmt->fetchColumn() > 0;
             
             // Check individual permissions
-            $indPermStmt = $conn->prepare("SELECT granted FROM individual_permissions WHERE user_id = ? AND permission = 'manage_suppliers'");
+            $indPermStmt = $conn->prepare("SELECT granted FROM individual_permissions WHERE user_id = ? AND permission = 'manage_purchases'");
             $indPermStmt->execute([$userInfo['id']]);
             $individualPermission = $indPermStmt->fetch();
             
@@ -425,33 +523,33 @@ function deleteSupplier($conn, $userInfo) {
                 $hasManagePermission = $individualPermission['granted'] == 1;
             }
             
-            // If user doesn't have manage_suppliers permission, check ownership
+            // If user doesn't have manage_purchases permission, check ownership
             if (!$hasManagePermission) {
                 // Check department-level permission
-                $permStmt = $conn->prepare("SELECT COUNT(*) FROM user_permissions WHERE role = ? AND permission = 'delete_records'");
+                $permStmt = $conn->prepare("SELECT COUNT(*) FROM user_permissions WHERE role = ? AND permission = 'view_department_data'");
                 $permStmt->execute([$userInfo['role']]);
                 
-                $hasDeletePermission = $permStmt->fetchColumn() > 0;
+                $hasDeptPermission = $permStmt->fetchColumn() > 0;
                 
-                // Check individual permissions for delete records
-                $indPermStmt = $conn->prepare("SELECT granted FROM individual_permissions WHERE user_id = ? AND permission = 'delete_records'");
+                // Check individual permissions for department data
+                $indPermStmt = $conn->prepare("SELECT granted FROM individual_permissions WHERE user_id = ? AND permission = 'view_department_data'");
                 $indPermStmt->execute([$userInfo['id']]);
-                $individualDeletePermission = $indPermStmt->fetch();
+                $individualDeptPermission = $indPermStmt->fetch();
                 
-                if ($individualDeletePermission) {
-                    $hasDeletePermission = $individualDeletePermission['granted'] == 1;
+                if ($individualDeptPermission) {
+                    $hasDeptPermission = $individualDeptPermission['granted'] == 1;
                 }
                 
                 $canDelete = false;
                 
-                // Check if user owns the supplier
-                if ($supplier['created_by'] == $userInfo['id']) {
+                // Check if user owns the purchase
+                if ($purchase['created_by'] == $userInfo['id']) {
                     $canDelete = true;
                 }
-                // Check if user can delete department data and supplier belongs to same department
-                else if ($hasDeletePermission && $userInfo['department_id']) {
+                // Check if user can manage department data and purchase belongs to same department
+                else if ($hasDeptPermission && $userInfo['department_id']) {
                     $creatorStmt = $conn->prepare("SELECT department_id FROM users WHERE id = ?");
-                    $creatorStmt->execute([$supplier['created_by']]);
+                    $creatorStmt->execute([$purchase['created_by']]);
                     $creator = $creatorStmt->fetch();
                     
                     if ($creator && $creator['department_id'] == $userInfo['department_id']) {
@@ -467,7 +565,8 @@ function deleteSupplier($conn, $userInfo) {
             }
         }
 
-        $stmt = $conn->prepare("DELETE FROM suppliers WHERE id = ? AND organization_id = ?");
+        // Delete purchase (will cascade delete purchase items)
+        $stmt = $conn->prepare("DELETE FROM purchases WHERE id = ? AND organization_id = ?");
         $stmt->execute([$data['id'], $userInfo['organization_id']]);
         
         // Log the activity
@@ -475,15 +574,14 @@ function deleteSupplier($conn, $userInfo) {
         $activityStmt->execute([
             $userInfo['id'],
             'delete',
-            'supplier',
+            'purchase',
             $data['id'],
             $_SERVER['REMOTE_ADDR'] ?? null,
             $_SERVER['HTTP_USER_AGENT'] ?? null
         ]);
-
-        echo json_encode(['success' => true, 'message' => 'Supplier deleted successfully']);
+        
+        echo json_encode(['success' => true, 'message' => 'Purchase deleted successfully']);
     } catch(PDOException $e) {
-        error_log('Delete supplier error: ' . $e->getMessage());
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
 }

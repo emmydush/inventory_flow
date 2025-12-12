@@ -5,12 +5,18 @@ header('Access-Control-Allow-Credentials: true');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
+// Also allow same-origin requests
+header('Access-Control-Allow-Origin: *');
+
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit();
 }
 
 session_start();
+
+// Debug information
+error_log("Login called. Session ID: " . session_id());
 
 require_once __DIR__ . '/../../config/database.php';
 
@@ -42,7 +48,7 @@ $username = $data['username'];
 $password = $data['password'];
 
 try {
-    $sql = "SELECT id, username, email, full_name, role, status, password_hash FROM users WHERE (username = :username OR email = :email) LIMIT 1";
+    $sql = "SELECT u.id, u.username, u.email, u.full_name, u.role, u.status, u.password_hash, u.organization_id, o.name as organization_name FROM users u LEFT JOIN organizations o ON u.organization_id = o.id WHERE (u.username = :username OR u.email = :email) LIMIT 1";
     $stmt = $conn->prepare($sql);
     
     if (!$stmt) {
@@ -78,6 +84,11 @@ try {
     $_SESSION['email'] = $user['email'];
     $_SESSION['full_name'] = $user['full_name'];
     $_SESSION['role'] = $user['role'];
+    $_SESSION['organization_id'] = $user['organization_id'];
+    $_SESSION['organization_name'] = $user['organization_name'];
+    
+    // Debug information
+    error_log("User logged in. Session data: " . print_r($_SESSION, true));
 
     // Create user session record
     $session_token = bin2hex(random_bytes(32));
@@ -123,7 +134,9 @@ try {
             'username' => $user['username'],
             'email' => $user['email'],
             'full_name' => $user['full_name'],
-            'role' => $user['role']
+            'role' => $user['role'],
+            'organization_id' => $user['organization_id'],
+            'organization_name' => $user['organization_name']
         ]
     ]);
     

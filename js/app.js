@@ -1,5 +1,6 @@
 const API_BASE = '/api';
 
+// Global state
 const state = {
     products: [],
     categories: [],
@@ -8,31 +9,85 @@ const state = {
     cart: [],
     settings: {},
     currentPage: 'dashboard',
-    paymentMethod: 'cash'
+    paymentMethod: 'cash',
+    taxRate: 0,
+    departments: [],
+    permissions: []
 };
 
-document.addEventListener('DOMContentLoaded', () => { initApp(); });
+document.addEventListener('DOMContentLoaded', () => {
+    checkUserSession();
+});
+
+// Flag to prevent continuous redirects
+let redirecting = false;
+
+async function checkUserSession() {
+    // Prevent multiple simultaneous session checks
+    if (redirecting) return;
+    
+    try {
+        const response = await fetch('/api/auth/check-session.php', { credentials: 'same-origin' });
+        const result = await response.json();
+
+        if (!result.authenticated) {
+            // Set redirecting flag to prevent continuous redirects
+            redirecting = true;
+            // Add a small delay to prevent rapid redirects
+            setTimeout(() => {
+                window.location.href = '/public/login.html';
+            }, 100);
+            return;
+        }
+
+        // Store user data in state
+        state.currentUser = result.user;
+
+        // Update UI with user information
+        document.getElementById('profileUsername').textContent = result.user.username;
+        document.getElementById('profileRole').textContent = result.user.role;
+        document.getElementById('topBarUserName').textContent = result.user.full_name;
+        
+        // Update user avatar with initials
+        const userAvatarInitials = document.getElementById('userAvatarInitials');
+        if (userAvatarInitials) {
+            // Use full name if available, otherwise fallback to username
+            const displayName = result.user.full_name || result.user.username;
+            const initials = displayName.charAt(0).toUpperCase();
+            userAvatarInitials.textContent = initials;
+        }
+
+        initApp();
+    } catch (error) {
+        console.error('Session check error:', error);
+        // Even if there's an error, we'll still initialize the app
+        // This prevents getting stuck in a redirect loop
+        initApp();
+    }
+}
 
 async function initApp() {
     await initDatabase();
     await loadSettings();
     await loadCategories();
     await loadCustomers();
-    await loadSuppliers();
+    await loadDepartments(); // Load departments
     await loadDashboard();
     setupEventListeners();
 }
 
 async function initDatabase() {
-    try { await fetch('/config/init_db.php'); } catch (e) { console.error('DB init error:', e); }
+    try { await fetch('/config/init_db.php', { credentials: 'same-origin' }); } catch (e) { console.error('DB init error:', e); }
 }
 
 async function loadSettings() {
     try {
-        const response = await fetch(`${API_BASE}/settings.php`);
+        const response = await fetch(`${API_BASE}/settings.php`, { credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) {
             state.settings = result.data;
+            state.taxRate = parseFloat(state.settings.tax_rate?.value || 0);
+            document.getElementById('taxRateDisplay').textContent = state.taxRate;
             Object.keys(result.data).forEach(key => {
                 const el = document.getElementById('setting_' + key);
                 if (el) {
@@ -50,13 +105,12 @@ async function loadSettings() {
 function setupEventListeners() {
     document.querySelectorAll('.nav-item').forEach(item => { item.addEventListener('click', () => navigateTo(item.dataset.page)); });
     document.getElementById('menuToggle').addEventListener('click', toggleSidebar);
-    
-    // Add logout event listener
     document.getElementById('logoutBtn').addEventListener('click', handleLogout);
     
     // User dropdown functionality
     const userDropdown = document.getElementById('userDropdown');
     const userDropdownMenu = document.getElementById('userDropdownMenu');
+    const sessionManagementBtn = document.getElementById('sessionManagementBtn');
     const logoutBtnHeader = document.getElementById('logoutBtnHeader');
     
     if (userDropdown) {
@@ -75,6 +129,15 @@ function setupEventListeners() {
             }
         });
         
+        // Session management button
+        if (sessionManagementBtn) {
+            sessionManagementBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                userDropdownMenu.classList.remove('show');
+                openSessionModal();
+            });
+        }
+        
         // View profile button
         const viewProfileBtn = document.getElementById('viewProfileBtn');
         if (viewProfileBtn) {
@@ -83,17 +146,6 @@ function setupEventListeners() {
                 userDropdownMenu.classList.remove('show');
                 // Navigate to dashboard to show user profile
                 navigateTo('dashboard');
-            });
-        }
-        
-        // Session management button
-        const sessionManagementBtn = document.getElementById('sessionManagementBtn');
-        if (sessionManagementBtn) {
-            sessionManagementBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                userDropdownMenu.classList.remove('show');
-                // TODO: Implement session management
-                alert('Session management feature coming soon!');
             });
         }
         
@@ -151,11 +203,8 @@ function setupEventListeners() {
     document.getElementById('posProductSearch').addEventListener('input', debounce(loadPosProducts, 300));
     document.getElementById('posCategoryFilter').addEventListener('change', loadPosProducts);
     document.getElementById('clearCartBtn').addEventListener('click', clearCart);
+    document.getElementById('cartDiscount').addEventListener('input', updateCartTotals);
     document.getElementById('completeSaleBtn').addEventListener('click', completeSale);
-    
-    // Barcode scanner functionality
-    document.getElementById('toggleBarcodeScanner').addEventListener('click', toggleBarcodeScanner);
-    document.getElementById('barcodeScannerInput').addEventListener('keypress', handleBarcodeInput);
     document.querySelectorAll('.payment-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.payment-btn').forEach(b => b.classList.remove('active'));
@@ -166,11 +215,6 @@ function setupEventListeners() {
 
     document.getElementById('filterSalesBtn').addEventListener('click', loadSales);
     document.getElementById('creditStatusFilter').addEventListener('change', loadCreditSales);
-    
-    // Purchases page event listeners
-    document.getElementById('addPurchaseBtn').addEventListener('click', () => openPurchaseModal());
-    document.getElementById('filterPurchasesBtn').addEventListener('click', loadPurchases);
-    document.getElementById('purchaseSupplierFilter').addEventListener('change', loadPurchases);
 
     document.querySelectorAll('.report-tab').forEach(tab => {
         tab.addEventListener('click', () => {
@@ -196,21 +240,36 @@ function setupEventListeners() {
     document.querySelectorAll('.modal-overlay').forEach(overlay => {
         overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('active'); });
     });
+    
+    // Session modal event listeners
+    const sessionModal = document.getElementById('sessionModal');
+    if (sessionModal) {
+        document.getElementById('closeSessionModal').addEventListener('click', closeSessionModal);
+        sessionModal.addEventListener('click', (e) => {
+            if (e.target === sessionModal) {
+                closeSessionModal();
+            }
+        });
+    }
 }
 
 function navigateTo(page) {
+    // Prevent redundant navigation to the same page
+    if (state.currentPage === page) {
+        return;
+    }
+    
     document.querySelectorAll('.nav-item').forEach(item => { item.classList.toggle('active', item.dataset.page === page); });
     document.querySelectorAll('.page').forEach(p => { p.classList.toggle('active', p.id === page + 'Page'); });
-    const titles = { dashboard: 'Dashboard', pos: 'Point of Sale', products: 'Products', categories: 'Categories', customers: 'Customers', suppliers: 'Suppliers', purchases: 'Purchases', sales: 'Sales History', credit: 'Credit Sales', reports: 'Reports', transactions: 'Stock History', users: 'Users', settings: 'Settings' };
+    const titles = { dashboard: 'Dashboard', pos: 'Point of Sale', products: 'Products', categories: 'Categories', customers: 'Customers', suppliers: 'Suppliers', sales: 'Sales History', credit: 'Credit Sales', reports: 'Reports', transactions: 'Stock History', users: 'Users', settings: 'Settings' };
     document.getElementById('pageTitle').textContent = titles[page] || 'Dashboard';
     state.currentPage = page;
     if (page === 'dashboard') loadDashboard();
-    else if (page === 'pos') { loadPosProducts(); updateCartDisplay(); initializeBarcodeScanner(); }
+    else if (page === 'pos') { loadPosProducts(); updateCartDisplay(); }
     else if (page === 'products') loadProducts();
     else if (page === 'categories') loadCategories();
     else if (page === 'customers') loadCustomers();
     else if (page === 'suppliers') loadSuppliers();
-    else if (page === 'purchases') loadPurchases();
     else if (page === 'sales') loadSales();
     else if (page === 'credit') loadCreditSales();
     else if (page === 'reports') loadReport('summary');
@@ -224,75 +283,60 @@ function toggleSidebar() { document.querySelector('.sidebar').classList.toggle('
 
 async function loadDashboard() {
     try {
-        // Get current user data from session
-        const userResponse = await fetch(`${API_BASE}/auth/check-session.php`, {
-            credentials: 'include'  // Ensure credentials are sent with the request
-        });
-        const userResult = await userResponse.json();
-        
-        if (userResult.success && userResult.authenticated) {
-            // Update user profile information in sidebar (if elements exist)
+        // Update user profile information (if elements exist)
+        if (state.currentUser) {
             const profileUsername = document.getElementById('profileUsername');
             const profileRole = document.getElementById('profileRole');
-            if (profileUsername) profileUsername.textContent = userResult.user.username;
-            if (profileRole) profileRole.textContent = userResult.user.role;
+            if (profileUsername) profileUsername.textContent = state.currentUser.username;
+            if (profileRole) profileRole.textContent = state.currentUser.role;
             
             // Update welcome message with user's name
             const welcomeUserName = document.getElementById('welcomeUserName');
             if (welcomeUserName) {
-                // Use full name if available, otherwise fallback to username
-                const displayName = userResult.user.full_name || userResult.user.username;
-                welcomeUserName.textContent = displayName;
+                welcomeUserName.textContent = state.currentUser.username;
             }
             
             // Update user avatar with initials
             const userAvatarInitials = document.getElementById('userAvatarInitials');
             if (userAvatarInitials) {
                 // Use full name if available, otherwise fallback to username
-                const displayName = userResult.user.full_name || userResult.user.username;
+                const displayName = state.currentUser.full_name || state.currentUser.username;
                 const initials = displayName.charAt(0).toUpperCase();
                 userAvatarInitials.textContent = initials;
             }
-            
-            // Update header username display
-            const topBarUserName = document.getElementById('topBarUserName');
-            if (topBarUserName) {
-                // Use full name if available, otherwise fallback to username
-                const displayName = userResult.user.full_name || userResult.user.username;
-                topBarUserName.textContent = displayName;
-            }
         }
-        
-        const response = await fetch(`${API_BASE}/reports.php?type=summary`, {
-            credentials: 'include'  // Ensure credentials are sent with the request
-        });
+
+        const response = await fetch(`${API_BASE}/reports.php?type=summary`, { credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) {
             const d = result.data;
-            document.getElementById('todaySales').textContent = '$' + formatNumber(d.today_sales.total);
-            document.getElementById('monthSales').textContent = '$' + formatNumber(d.month_sales.total);
-            document.getElementById('totalProducts').textContent = d.total_products;
-            document.getElementById('lowStockCount').textContent = d.low_stock_count;
-            document.getElementById('lowStockBadge').textContent = d.low_stock_count;
-            document.getElementById('totalCustomers').textContent = d.total_customers;
-            document.getElementById('pendingCredits').textContent = '$' + formatNumber(d.pending_credits.total);
+            // Update dashboard statistics
+            // Note: Some elements may not exist in all versions of the HTML
+            const elementsToUpdate = [
+                { id: 'totalSales', value: d.today_sales.total },
+                { id: 'totalProducts', value: d.total_products },
+                { id: 'lowStockCount', value: d.low_stock_count },
+                { id: 'totalCustomers', value: d.total_customers }
+            ];
+            
+            elementsToUpdate.forEach(item => {
+                const element = document.getElementById(item.id);
+                if (element) {
+                    if (item.id === 'totalSales') {
+                        element.textContent = (state.settings.currency_symbol?.value || 'FRW') + ' ' + formatNumber(item.value);
+                    } else {
+                        element.textContent = item.value;
+                    }
+                }
+            });
         }
-        
-        const dashResponse = await fetch(`${API_BASE}/dashboard.php`, {
-            credentials: 'include'  // Ensure credentials are sent with the request
-        });
+        const dashResponse = await fetch(`${API_BASE}/dashboard.php`, { credentials: 'same-origin' });
         const dashResult = await dashResponse.json();
         if (dashResult.success) {
             renderLowStockList(dashResult.data.low_stock_items);
             renderRecentActivity(dashResult.data.recent_transactions);
         }
-        
-        // Load chart data
-        await loadChartData();
-    } catch (e) { 
-        console.error('Dashboard error:', e); 
-        showToast('Error loading dashboard', 'error'); 
-    }
+    } catch (e) { console.error('Dashboard error:', e); showToast('Error loading dashboard', 'error'); }
 }
 
 function renderLowStockList(items) {
@@ -316,7 +360,7 @@ function getActivityTitle(type) { return { add: 'Stock Added', remove: 'Stock Re
 
 async function loadCategories() {
     try {
-        const response = await fetch(`${API_BASE}/categories.php`);
+        const response = await fetch(`${API_BASE}/categories.php`, { credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) {
             state.categories = result.data;
@@ -427,7 +471,7 @@ function getStockStatus(quantity, minStock) {
 async function loadCustomers() {
     try {
         const search = document.getElementById('customerSearch')?.value || '';
-        const response = await fetch(`${API_BASE}/customers.php${search ? '?search=' + encodeURIComponent(search) : ''}`);
+        const response = await fetch(`${API_BASE}/customers.php${search ? '?search=' + encodeURIComponent(search) : ''}`, { credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) {
             state.customers = result.data;
@@ -470,9 +514,11 @@ function renderCustomers() {
 async function loadSuppliers() {
     try {
         const search = document.getElementById('supplierSearch')?.value || '';
-        const response = await fetch(`${API_BASE}/suppliers.php${search ? '?search=' + encodeURIComponent(search) : ''}`);
+        const response = await fetch(`${API_BASE}/suppliers.php${search ? '?search=' + encodeURIComponent(search) : ''}`, { credentials: 'same-origin' });
         const result = await response.json();
-        if (result.success && state.currentPage === 'suppliers') renderSuppliers(result.data);
+        if (result.success) {
+            if (state.currentPage === 'suppliers') renderSuppliers(result.data);
+        }
     } catch (e) { console.error('Suppliers error:', e); }
 }
 
@@ -483,8 +529,8 @@ function renderSuppliers(suppliers) {
         <tr>
             <td>${escapeHtml(s.name)}</td>
             <td>${escapeHtml(s.contact_person || '-')}</td>
-            <td>${escapeHtml(s.phone || '-')}</td>
             <td>${escapeHtml(s.email || '-')}</td>
+            <td>${escapeHtml(s.phone || '-')}</td>
             <td>
                 <div class="action-buttons">
                     <button class="btn btn-secondary btn-sm" onclick="editSupplier(${s.id})">Edit</button>
@@ -548,159 +594,43 @@ function updateCartQty(index, change) {
 function removeFromCart(index) { state.cart.splice(index, 1); updateCartDisplay(); }
 function clearCart() { state.cart = []; updateCartDisplay(); }
 
-// Barcode scanner functions
-let barcodeScannerMode = false;
-
-function toggleBarcodeScanner() {
-    barcodeScannerMode = !barcodeScannerMode;
-    const searchInput = document.getElementById('posProductSearch');
-    const barcodeInput = document.getElementById('barcodeScannerInput');
-    const toggleButton = document.getElementById('toggleBarcodeScanner');
-    const scannerIndicator = document.getElementById('scannerIndicator');
-    
-    if (barcodeScannerMode) {
-        searchInput.style.display = 'none';
-        barcodeInput.style.display = 'block';
-        scannerIndicator.style.display = 'block';
-        barcodeInput.focus();
-        toggleButton.textContent = 'Disable Barcode Scanner';
-        toggleButton.classList.add('active');
-    } else {
-        searchInput.style.display = 'block';
-        barcodeInput.style.display = 'none';
-        scannerIndicator.style.display = 'none';
-        searchInput.focus();
-        toggleButton.textContent = 'Enable Barcode Scanner';
-        toggleButton.classList.remove('active');
-    }
-}
-
-async function handleBarcodeInput(event) {
-    // Enter key triggers the scan
-    if (event.key === 'Enter') {
-        const barcode = event.target.value.trim();
-        if (barcode) {
-            try {
-                // Search for product by SKU (barcode)
-                const response = await fetch(`${API_BASE}/products.php?search=${encodeURIComponent(barcode)}&exact=true`);
-                const result = await response.json();
-                
-                if (result.success && result.data.length > 0) {
-                    // Find exact match by SKU
-                    const product = result.data.find(p => p.sku === barcode);
-                    
-                    if (product) {
-                        addToCart(product.id, product.name, product.price, product.quantity);
-                        showToast(`Added ${product.name} to cart`, 'success');
-                    } else {
-                        showToast('Product not found', 'error');
-                    }
-                } else {
-                    showToast('Product not found', 'error');
-                }
-            } catch (e) {
-                console.error('Barcode scan error:', e);
-                showToast('Error scanning product', 'error');
-            }
-        }
-        // Clear the input
-        event.target.value = '';
-    }
-}
-
-function initializeBarcodeScanner() {
-    // Reset barcode scanner mode when switching to POS page
-    barcodeScannerMode = false;
-    const searchInput = document.getElementById('posProductSearch');
-    const barcodeInput = document.getElementById('barcodeScannerInput');
-    const toggleButton = document.getElementById('toggleBarcodeScanner');
-    const scannerIndicator = document.getElementById('scannerIndicator');
-    
-    searchInput.style.display = 'block';
-    barcodeInput.style.display = 'none';
-    scannerIndicator.style.display = 'none';
-    toggleButton.textContent = 'Enable Barcode Scanner';
-    toggleButton.classList.remove('active');
-}
-
 function updateCartTotals() {
     const subtotal = state.cart.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
-    const total = subtotal;
+    const tax = subtotal * (state.taxRate / 100);
+    const discount = parseFloat(document.getElementById('cartDiscount').value) || 0;
+    const total = subtotal + tax - discount;
     document.getElementById('cartSubtotal').textContent = '$' + formatNumber(subtotal);
-    document.getElementById('cartTotal').textContent = '$' + formatNumber(total);
+    document.getElementById('cartTax').textContent = '$' + formatNumber(tax);
+    document.getElementById('cartTotal').textContent = '$' + formatNumber(Math.max(0, total));
 }
 
 async function completeSale() {
-    if (state.cart.length === 0) { 
-        showToast('Cart is empty', 'warning'); 
-        return; 
-    }
-    
-    // Check if all products in cart still exist
-    try {
-        const productChecks = state.cart.map(async (item) => {
-            const response = await fetch(`${API_BASE}/products.php?id=${item.product_id}`);
-            const result = await response.json();
-            return result.success && result.data;
-        });
-        
-        const productResults = await Promise.all(productChecks);
-        const invalidProducts = productResults.filter(result => !result);
-        
-        if (invalidProducts.length > 0) {
-            showToast('Some products in your cart are no longer available. Please refresh your cart.', 'error');
-            loadPosProducts(); // Refresh product list
-            return;
-        }
-    } catch (e) {
-        console.error('Product validation error:', e);
-        showToast('Error validating products in cart', 'error');
-        return;
-    }
-    
+    if (state.cart.length === 0) { showToast('Cart is empty', 'warning'); return; }
     const subtotal = state.cart.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
-    const total = subtotal;
+    const tax = subtotal * (state.taxRate / 100);
+    const discount = parseFloat(document.getElementById('cartDiscount').value) || 0;
+    const total = subtotal + tax - discount;
     const customerId = document.getElementById('posCustomer').value;
-    
-    if (state.paymentMethod === 'credit' && !customerId) { 
-        showToast('Please select a customer for credit sales', 'warning'); 
-        return; 
-    }
-    
+    if (state.paymentMethod === 'credit' && !customerId) { showToast('Please select a customer for credit sales', 'warning'); return; }
     const saleData = {
         customer_id: customerId || null,
         subtotal: subtotal,
-        total: total,
+        tax: tax,
+        discount: discount,
+        total: Math.max(0, total),
         payment_method: state.paymentMethod,
-        items: state.cart.map(item => ({ 
-            product_id: item.product_id, 
-            product_name: item.product_name, 
-            quantity: item.quantity, 
-            unit_price: item.unit_price, 
-            total: item.unit_price * item.quantity 
-        }))
+        items: state.cart.map(item => ({ product_id: item.product_id, product_name: item.product_name, quantity: item.quantity, unit_price: item.unit_price, total: item.unit_price * item.quantity }))
     };
-    
     try {
-        const response = await fetch(`${API_BASE}/sales.php`, { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify(saleData) 
-        });
-        
+        const response = await fetch(`${API_BASE}/sales.php`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(saleData), credentials: 'same-origin' });
         const result = await response.json();
-        
         if (result.success) {
             showToast(`Sale completed! Invoice: ${result.invoice_number}`, 'success');
             clearCart();
+            document.getElementById('cartDiscount').value = 0;
             loadPosProducts();
-        } else {
-            showToast(result.error || 'Error completing sale', 'error');
-        }
-    } catch (e) { 
-        console.error('Sale error:', e); 
-        showToast('Error completing sale', 'error'); 
-    }
+        } else showToast(result.error || 'Error completing sale', 'error');
+    } catch (e) { console.error('Sale error:', e); showToast('Error completing sale', 'error'); }
 }
 
 async function loadSales() {
@@ -726,11 +656,11 @@ function renderSales(sales) {
 
 async function viewSale(id) {
     try {
-        const response = await fetch(`${API_BASE}/sales.php?id=${id}`);
+        const response = await fetch(`${API_BASE}/sales.php?id=${id}`, { credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) {
             const s = result.data;
-            document.getElementById('saleDetails').innerHTML = `<div class="sale-info"><p><strong>Invoice:</strong> ${s.invoice_number}</p><p><strong>Customer:</strong> ${s.customer_name || 'Walk-in'}</p><p><strong>Date:</strong> ${formatDate(s.created_at)}</p><p><strong>Payment:</strong> ${s.payment_method} (${s.payment_status})</p></div><table class="data-table"><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody>${s.items.map(i => `<tr><td>${escapeHtml(i.product_name)}</td><td>${i.quantity}</td><td>$${formatNumber(i.unit_price)}</td><td>$${formatNumber(i.total)}</td></tr>`).join('')}</tbody></table><div class="sale-totals" style="margin-top:1rem"><p><strong>Subtotal:</strong> $${formatNumber(s.subtotal)}</p><p><strong>Total:</strong> $${formatNumber(s.total)}</p></div>`;
+            document.getElementById('saleDetails').innerHTML = `<div class="sale-info"><p><strong>Invoice:</strong> ${s.invoice_number}</p><p><strong>Customer:</strong> ${s.customer_name || 'Walk-in'}</p><p><strong>Date:</strong> ${formatDate(s.created_at)}</p><p><strong>Payment:</strong> ${s.payment_method} (${s.payment_status})</p></div><table class="data-table"><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody>${s.items.map(i => `<tr><td>${escapeHtml(i.product_name)}</td><td>${i.quantity}</td><td>$${formatNumber(i.unit_price)}</td><td>$${formatNumber(i.total)}</td></tr>`).join('')}</tbody></table><div class="sale-totals" style="margin-top:1rem"><p><strong>Subtotal:</strong> $${formatNumber(s.subtotal)}</p><p><strong>Tax:</strong> $${formatNumber(s.tax)}</p><p><strong>Discount:</strong> $${formatNumber(s.discount)}</p><p><strong>Total:</strong> $${formatNumber(s.total)}</p></div>`;
             document.getElementById('saleModal').classList.add('active');
         }
     } catch (e) { console.error('View sale error:', e); }
@@ -739,7 +669,7 @@ async function viewSale(id) {
 async function loadCreditSales() {
     try {
         const status = document.getElementById('creditStatusFilter').value;
-        const response = await fetch(`${API_BASE}/credit.php${status ? '?status=' + status : ''}`);
+        const response = await fetch(`${API_BASE}/credit.php${status ? '?status=' + status : ''}`, { credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) renderCreditSales(result.data);
     } catch (e) { console.error('Credit sales error:', e); }
@@ -765,7 +695,7 @@ async function handlePaymentSubmit(e) {
     e.preventDefault();
     const data = { credit_sale_id: document.getElementById('paymentCreditId').value, amount: parseFloat(document.getElementById('paymentAmount').value), payment_method: document.getElementById('paymentMethod').value, notes: document.getElementById('paymentNotes').value };
     try {
-        const response = await fetch(`${API_BASE}/credit.php`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        const response = await fetch(`${API_BASE}/credit.php`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) { showToast('Payment recorded successfully', 'success'); closePaymentModal(); loadCreditSales(); }
         else showToast(result.error || 'Error recording payment', 'error');
@@ -773,48 +703,43 @@ async function handlePaymentSubmit(e) {
 }
 
 async function loadReport(type) {
-    console.log('Loading report type:', type); // Debug log
     const container = document.getElementById('reportContent');
     container.innerHTML = '<p class="empty-state">Loading...</p>';
     try {
-        const response = await fetch(`${API_BASE}/reports.php?type=${type}`);
-        console.log('Report API response status:', response.status); // Debug log
+        const response = await fetch(`${API_BASE}/reports.php?type=${type}`, { credentials: 'same-origin' });
         const result = await response.json();
-        console.log('Report API result:', result); // Debug log
         if (result.success) {
             if (type === 'summary') renderSummaryReport(result.data);
             else if (type === 'sales') renderSalesReport(result.data);
             else if (type === 'inventory') renderInventoryReport(result.data);
             else if (type === 'credit') renderCreditReport(result.data);
-        } else {
-            console.error('Report API error:', result.error);
-            container.innerHTML = '<p class="empty-state">Error loading report: ' + (result.error || 'Unknown error') + '</p>';
         }
-    } catch (e) { 
-        console.error('Report error:', e); 
-        container.innerHTML = '<p class="empty-state">Error loading report: ' + e.message + '</p>'; 
-    }
+    } catch (e) { console.error('Report error:', e); container.innerHTML = '<p class="empty-state">Error loading report</p>'; }
 }
 
 function renderSummaryReport(data) {
-    document.getElementById('reportContent').innerHTML = `<div class="report-stats"><div class="report-stat"><div class="report-stat-label">Today's Sales</div><div class="report-stat-value">$${formatNumber(data.today_sales.total)}</div></div><div class="report-stat"><div class="report-stat-label">This Month</div><div class="report-stat-value">$${formatNumber(data.month_sales.total)}</div></div><div class="report-stat"><div class="report-stat-label">Total Products</div><div class="report-stat-value">${data.total_products}</div></div><div class="report-stat"><div class="report-stat-label">Low Stock Items</div><div class="report-stat-value">${data.low_stock_count}</div></div><div class="report-stat"><div class="report-stat-label">Total Customers</div><div class="report-stat-value">${data.total_customers}</div></div><div class="report-stat"><div class="report-stat-label">Pending Credits</div><div class="report-stat-value">$${formatNumber(data.pending_credits.total)}</div></div><div class="report-stat"><div class="report-stat-label">Inventory Value</div><div class="report-stat-value">$${formatNumber(data.inventory_value)}</div></div><div class="report-stat"><div class="report-stat-label">Total Suppliers</div><div class="report-stat-value">${data.total_suppliers}</div></div></div>`;
+    const currencySymbol = state.settings.currency_symbol?.value || 'FRW';
+    document.getElementById('reportContent').innerHTML = `<div class="report-stats"><div class="report-stat"><div class="report-stat-label">Today's Sales</div><div class="report-stat-value">${currencySymbol} ${formatNumber(data.today_sales.total)}</div></div><div class="report-stat"><div class="report-stat-label">This Month</div><div class="report-stat-value">${currencySymbol} ${formatNumber(data.month_sales.total)}</div></div><div class="report-stat"><div class="report-stat-label">Total Products</div><div class="report-stat-value">${data.total_products}</div></div><div class="report-stat"><div class="report-stat-label">Low Stock Items</div><div class="report-stat-value">${data.low_stock_count}</div></div><div class="report-stat"><div class="report-stat-label">Total Customers</div><div class="report-stat-value">${data.total_customers}</div></div><div class="report-stat"><div class="report-stat-label">Pending Credits</div><div class="report-stat-value">${currencySymbol} ${formatNumber(data.pending_credits.total)}</div></div><div class="report-stat"><div class="report-stat-label">Inventory Value</div><div class="report-stat-value">${currencySymbol} ${formatNumber(data.inventory_value)}</div></div><div class="report-stat"><div class="report-stat-label">Total Suppliers</div><div class="report-stat-value">${data.total_suppliers}</div></div></div>`;
 }
 
 function renderSalesReport(data) {
-    document.getElementById('reportContent').innerHTML = `<div class="report-stats"><div class="report-stat"><div class="report-stat-label">Total Transactions</div><div class="report-stat-value">${data.summary.transactions}</div></div><div class="report-stat"><div class="report-stat-label">Total Sales</div><div class="report-stat-value">$${formatNumber(data.summary.total_sales)}</div></div><div class="report-stat"><div class="report-stat-label">Paid Sales</div><div class="report-stat-value">$${formatNumber(data.summary.paid_sales)}</div></div><div class="report-stat"><div class="report-stat-label">Credit Sales</div><div class="report-stat-value">$${formatNumber(data.summary.credit_sales)}</div></div></div><table class="data-table"><thead><tr><th>Date</th><th>Transactions</th><th>Total</th><th>Paid</th><th>Credit</th></tr></thead><tbody>${data.daily.map(d => `<tr><td>${d.date}</td><td>${d.transactions}</td><td>$${formatNumber(d.total_sales)}</td><td>$${formatNumber(d.paid_sales)}</td><td>$${formatNumber(d.credit_sales)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-state">No data</td></tr>'}</tbody></table>`;
+    const currencySymbol = state.settings.currency_symbol?.value || 'FRW';
+    document.getElementById('reportContent').innerHTML = `<div class="report-stats"><div class="report-stat"><div class="report-stat-label">Total Transactions</div><div class="report-stat-value">${data.summary.transactions}</div></div><div class="report-stat"><div class="report-stat-label">Total Sales</div><div class="report-stat-value">${currencySymbol} ${formatNumber(data.summary.total_sales)}</div></div><div class="report-stat"><div class="report-stat-label">Paid Sales</div><div class="report-stat-value">${currencySymbol} ${formatNumber(data.summary.paid_sales)}</div></div><div class="report-stat"><div class="report-stat-label">Credit Sales</div><div class="report-stat-value">${currencySymbol} ${formatNumber(data.summary.credit_sales)}</div></div></div><table class="data-table"><thead><tr><th>Date</th><th>Transactions</th><th>Total</th><th>Paid</th><th>Credit</th></tr></thead><tbody>${data.daily.map(d => `<tr><td>${d.date}</td><td>${d.transactions}</td><td>${currencySymbol} ${formatNumber(d.total_sales)}</td><td>${currencySymbol} ${formatNumber(d.paid_sales)}</td><td>${currencySymbol} ${formatNumber(d.credit_sales)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-state">No data</td></tr>'}</tbody></table>`;
 }
 
 function renderInventoryReport(data) {
-    document.getElementById('reportContent').innerHTML = `<h4 style="margin-bottom:1rem">By Category</h4><table class="data-table"><thead><tr><th>Category</th><th>Products</th><th>Total Qty</th><th>Value</th></tr></thead><tbody>${data.by_category.map(c => `<tr><td>${escapeHtml(c.name)}</td><td>${c.product_count}</td><td>${c.total_quantity}</td><td>$${formatNumber(c.total_value)}</td></tr>`).join('')}</tbody></table><h4 style="margin:1.5rem 0 1rem">All Products</h4><table class="data-table"><thead><tr><th>Product</th><th>SKU</th><th>Qty</th><th>Price</th><th>Value</th></tr></thead><tbody>${data.products.map(p => `<tr><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.sku)}</td><td>${p.quantity}</td><td>$${formatNumber(p.price)}</td><td>$${formatNumber(p.stock_value)}</td></tr>`).join('')}</tbody></table>`;
+    const currencySymbol = state.settings.currency_symbol?.value || 'FRW';
+    document.getElementById('reportContent').innerHTML = `<h4 style="margin-bottom:1rem">By Category</h4><table class="data-table"><thead><tr><th>Category</th><th>Products</th><th>Total Qty</th><th>Value</th></tr></thead><tbody>${data.by_category.map(c => `<tr><td>${escapeHtml(c.name)}</td><td>${c.product_count}</td><td>${c.total_quantity}</td><td>${currencySymbol} ${formatNumber(c.total_value)}</td></tr>`).join('')}</tbody></table><h4 style="margin:1.5rem 0 1rem">All Products</h4><table class="data-table"><thead><tr><th>Product</th><th>SKU</th><th>Qty</th><th>Price</th><th>Value</th></tr></thead><tbody>${data.products.map(p => `<tr><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.sku)}</td><td>${p.quantity}</td><td>${currencySymbol} ${formatNumber(p.price)}</td><td>${currencySymbol} ${formatNumber(p.stock_value)}</td></tr>`).join('')}</tbody></table>`;
 }
 
 function renderCreditReport(data) {
-    document.getElementById('reportContent').innerHTML = `<h4 style="margin-bottom:1rem">Customer Credits</h4><table class="data-table"><thead><tr><th>Customer</th><th>Credit Limit</th><th>Balance</th><th>Pending</th></tr></thead><tbody>${data.customer_credits.map(c => `<tr><td>${escapeHtml(c.customer_name)}</td><td>$${formatNumber(c.credit_limit)}</td><td>$${formatNumber(c.credit_balance)}</td><td>$${formatNumber(c.pending_amount)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty-state">No data</td></tr>'}</tbody></table>${data.overdue.length > 0 ? `<h4 style="margin:1.5rem 0 1rem;color:var(--danger)">Overdue Payments</h4><table class="data-table"><thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Balance</th><th>Due Date</th></tr></thead><tbody>${data.overdue.map(o => `<tr><td>${escapeHtml(o.invoice_number)}</td><td>${escapeHtml(o.customer_name)}</td><td>$${formatNumber(o.amount)}</td><td>$${formatNumber(o.balance)}</td><td>${o.due_date}</td></tr>`).join('')}</tbody></table>` : ''}`;
+    const currencySymbol = state.settings.currency_symbol?.value || 'FRW';
+    document.getElementById('reportContent').innerHTML = `<h4 style="margin-bottom:1rem">Customer Credits</h4><table class="data-table"><thead><tr><th>Customer</th><th>Credit Limit</th><th>Balance</th><th>Pending</th></tr></thead><tbody>${data.customer_credits.map(c => `<tr><td>${escapeHtml(c.customer_name)}</td><td>${currencySymbol} ${formatNumber(c.credit_limit)}</td><td>${currencySymbol} ${formatNumber(c.credit_balance)}</td><td>${currencySymbol} ${formatNumber(c.pending_amount)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty-state">No data</td></tr>'}</tbody></table>${data.overdue.length > 0 ? `<h4 style="margin:1.5rem 0 1rem;color:var(--danger)">Overdue Payments</h4><table class="data-table"><thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Balance</th><th>Due Date</th></tr></thead><tbody>${data.overdue.map(o => `<tr><td>${escapeHtml(o.invoice_number)}</td><td>${escapeHtml(o.customer_name)}</td><td>${currencySymbol} ${formatNumber(o.amount)}</td><td>${currencySymbol} ${formatNumber(o.balance)}</td><td>${o.due_date}</td></tr>`).join('')}</tbody></table>` : ''}`;
 }
 
 async function loadTransactions() {
     try {
-        const response = await fetch(`${API_BASE}/stock.php`);
+        const response = await fetch(`${API_BASE}/stock.php`, { credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) renderTransactions(result.data);
     } catch (e) { console.error('Transactions error:', e); }
@@ -850,7 +775,7 @@ function closeProductModal() { document.getElementById('productModal').classList
 
 async function editProduct(id) {
     try {
-        const response = await fetch(`${API_BASE}/products.php?id=${id}`);
+        const response = await fetch(`${API_BASE}/products.php?id=${id}`, { credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) openProductModal(result.data);
     } catch (e) { console.error('Edit product error:', e); showToast('Error loading product', 'error'); }
@@ -859,41 +784,20 @@ async function editProduct(id) {
 async function handleProductSubmit(e) {
     e.preventDefault();
     const id = document.getElementById('productId').value;
-    const data = { 
-        sku: document.getElementById('productSku').value, 
-        name: document.getElementById('productName').value, 
-        description: document.getElementById('productDescription').value, 
-        category_id: document.getElementById('productCategory').value || null,
-        price: parseFloat(document.getElementById('productPrice').value) || 0, 
-        cost_price: parseFloat(document.getElementById('productCostPrice').value) || 0, 
-        quantity: parseInt(document.getElementById('productQuantity').value) || 0, 
-        min_stock: parseInt(document.getElementById('productMinStock').value) || 10 
-    };
+    const data = { sku: document.getElementById('productSku').value, name: document.getElementById('productName').value, description: document.getElementById('productDescription').value, category_id: document.getElementById('productCategory').value, price: parseFloat(document.getElementById('productPrice').value) || 0, cost_price: parseFloat(document.getElementById('productCostPrice').value) || 0, quantity: parseInt(document.getElementById('productQuantity').value) || 0, min_stock: parseInt(document.getElementById('productMinStock').value) || 10 };
     if (id) data.id = id;
     try {
-        const response = await fetch(`${API_BASE}/products.php`, { 
-            method: id ? 'PUT' : 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify(data) 
-        });
+        const response = await fetch(`${API_BASE}/products.php`, { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), credentials: 'same-origin' });
         const result = await response.json();
-        if (result.success) { 
-            showToast(result.message, 'success'); 
-            closeProductModal(); 
-            loadProducts(); 
-            if (state.currentPage === 'dashboard') loadDashboard(); 
-        }
+        if (result.success) { showToast(result.message, 'success'); closeProductModal(); loadProducts(); if (state.currentPage === 'dashboard') loadDashboard(); }
         else showToast(result.error || 'Error saving product', 'error');
-    } catch (e) { 
-        console.error('Save product error:', e); 
-        showToast('Error saving product', 'error'); 
-    }
+    } catch (e) { console.error('Save product error:', e); showToast('Error saving product', 'error'); }
 }
 
 async function deleteProduct(id) {
     if (!confirm('Are you sure you want to delete this product?')) return;
     try {
-        const response = await fetch(`${API_BASE}/products.php`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+        const response = await fetch(`${API_BASE}/products.php`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }), credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) { showToast('Product deleted successfully', 'success'); loadProducts(); if (state.currentPage === 'dashboard') loadDashboard(); }
         else showToast(result.error || 'Error deleting product', 'error');
@@ -905,37 +809,19 @@ function closeCategoryModal() { document.getElementById('categoryModal').classLi
 
 async function handleCategorySubmit(e) {
     e.preventDefault();
-    const data = { 
-        name: document.getElementById('categoryName').value, 
-        description: document.getElementById('categoryDescription').value 
-    };
+    const data = { name: document.getElementById('categoryName').value, description: document.getElementById('categoryDescription').value };
     try {
-        const response = await fetch(`${API_BASE}/categories.php`, { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify(data) 
-        });
+        const response = await fetch(`${API_BASE}/categories.php`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), credentials: 'same-origin' });
         const result = await response.json();
-        if (result.success) { 
-            showToast('Category created successfully', 'success'); 
-            closeCategoryModal(); 
-            loadCategories(); 
-            // Refresh products page if needed
-            if (state.currentPage === 'products') {
-                loadProducts();
-            }
-        }
+        if (result.success) { showToast('Category created successfully', 'success'); closeCategoryModal(); loadCategories(); }
         else showToast(result.error || 'Error creating category', 'error');
-    } catch (e) { 
-        console.error('Create category error:', e); 
-        showToast('Error creating category', 'error'); 
-    }
+    } catch (e) { console.error('Create category error:', e); showToast('Error creating category', 'error'); }
 }
 
 async function deleteCategory(id) {
     if (!confirm('Are you sure you want to delete this category?')) return;
     try {
-        const response = await fetch(`${API_BASE}/categories.php`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+        const response = await fetch(`${API_BASE}/categories.php`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }), credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) { showToast('Category deleted successfully', 'success'); loadCategories(); }
         else showToast(result.error || 'Error deleting category', 'error');
@@ -956,7 +842,7 @@ async function handleStockSubmit(e) {
     e.preventDefault();
     const data = { product_id: document.getElementById('stockProductId').value, type: document.getElementById('stockType').value, quantity: parseInt(document.getElementById('stockQuantity').value), notes: document.getElementById('stockNotes').value };
     try {
-        const response = await fetch(`${API_BASE}/stock.php`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        const response = await fetch(`${API_BASE}/stock.php`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) { showToast('Stock adjusted successfully', 'success'); closeStockModal(); loadProducts(); if (state.currentPage === 'dashboard') loadDashboard(); }
         else showToast(result.error || 'Error adjusting stock', 'error');
@@ -984,7 +870,7 @@ function closeCustomerModal() { document.getElementById('customerModal').classLi
 
 async function editCustomer(id) {
     try {
-        const response = await fetch(`${API_BASE}/customers.php?id=${id}`);
+        const response = await fetch(`${API_BASE}/customers.php?id=${id}`, { credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) openCustomerModal(result.data);
     } catch (e) { console.error('Edit customer error:', e); showToast('Error loading customer', 'error'); }
@@ -993,37 +879,20 @@ async function editCustomer(id) {
 async function handleCustomerSubmit(e) {
     e.preventDefault();
     const id = document.getElementById('customerId').value;
-    const data = { 
-        name: document.getElementById('customerName').value, 
-        email: document.getElementById('customerEmail').value, 
-        phone: document.getElementById('customerPhone').value, 
-        address: document.getElementById('customerAddress').value, 
-        credit_limit: parseFloat(document.getElementById('customerCreditLimit').value) || 0 
-    };
+    const data = { name: document.getElementById('customerName').value, email: document.getElementById('customerEmail').value, phone: document.getElementById('customerPhone').value, address: document.getElementById('customerAddress').value, credit_limit: parseFloat(document.getElementById('customerCreditLimit').value) || 0 };
     if (id) data.id = id;
     try {
-        const response = await fetch(`${API_BASE}/customers.php`, { 
-            method: id ? 'PUT' : 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify(data) 
-        });
+        const response = await fetch(`${API_BASE}/customers.php`, { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), credentials: 'same-origin' });
         const result = await response.json();
-        if (result.success) { 
-            showToast(result.message, 'success'); 
-            closeCustomerModal(); 
-            loadCustomers(); 
-        }
+        if (result.success) { showToast(result.message, 'success'); closeCustomerModal(); loadCustomers(); }
         else showToast(result.error || 'Error saving customer', 'error');
-    } catch (e) { 
-        console.error('Save customer error:', e); 
-        showToast('Error saving customer', 'error'); 
-    }
+    } catch (e) { console.error('Save customer error:', e); showToast('Error saving customer', 'error'); }
 }
 
 async function deleteCustomer(id) {
     if (!confirm('Are you sure you want to delete this customer?')) return;
     try {
-        const response = await fetch(`${API_BASE}/customers.php`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+        const response = await fetch(`${API_BASE}/customers.php`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }), credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) { showToast('Customer deleted successfully', 'success'); loadCustomers(); }
         else showToast(result.error || 'Error deleting customer', 'error');
@@ -1052,7 +921,7 @@ function closeSupplierModal() { document.getElementById('supplierModal').classLi
 
 async function editSupplier(id) {
     try {
-        const response = await fetch(`${API_BASE}/suppliers.php?id=${id}`);
+        const response = await fetch(`${API_BASE}/suppliers.php?id=${id}`, { credentials: 'same-origin' });
         const result = await response.json();
         if (result.success) openSupplierModal(result.data);
     } catch (e) { console.error('Edit supplier error:', e); showToast('Error loading supplier', 'error'); }
@@ -1061,17 +930,120 @@ async function editSupplier(id) {
 async function handleSupplierSubmit(e) {
     e.preventDefault();
     const id = document.getElementById('supplierId').value;
-    const data = { 
-        name: document.getElementById('supplierName').value, 
-        contact_person: document.getElementById('supplierContact').value, 
-        phone: document.getElementById('supplierPhone').value, 
-        email: document.getElementById('supplierEmail').value, 
-        address: document.getElementById('supplierAddress').value, 
-        notes: document.getElementById('supplierNotes').value 
-    };
+    const data = { name: document.getElementById('supplierName').value, contact_person: document.getElementById('supplierContact').value, phone: document.getElementById('supplierPhone').value, email: document.getElementById('supplierEmail').value, address: document.getElementById('supplierAddress').value, notes: document.getElementById('supplierNotes').value };
     if (id) data.id = id;
     try {
-        const response = await fetch(`${API_BASE}/suppliers.php`, { 
+        const response = await fetch(`${API_BASE}/suppliers.php`, { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), credentials: 'same-origin' });
+        const result = await response.json();
+        if (result.success) { showToast(result.message, 'success'); closeSupplierModal(); loadSuppliers(); }
+        else showToast(result.error || 'Error saving supplier', 'error');
+    } catch (e) { console.error('Save supplier error:', e); showToast('Error saving supplier', 'error'); }
+}
+
+async function deleteSupplier(id) {
+    if (!confirm('Are you sure you want to delete this supplier?')) return;
+    try {
+        const response = await fetch(`${API_BASE}/suppliers.php`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }), credentials: 'same-origin' });
+        const result = await response.json();
+        if (result.success) { showToast('Supplier deleted successfully', 'success'); loadSuppliers(); }
+        else showToast(result.error || 'Error deleting supplier', 'error');
+    } catch (e) { console.error('Delete supplier error:', e); showToast('Error deleting supplier', 'error'); }
+}
+
+async function loadUsers() {
+    try {
+        const search = document.getElementById('userSearch')?.value || '';
+        const response = await fetch(`${API_BASE}/users.php${search ? '?search=' + encodeURIComponent(search) : ''}`, { credentials: 'same-origin' });
+        const result = await response.json();
+        if (result.success) renderUsers(result.data);
+    } catch (e) { console.error('Users error:', e); }
+}
+
+function renderUsers(users) {
+    const tbody = document.getElementById('usersBody');
+    if (!users || users.length === 0) { tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No users found</td></tr>'; return; }
+    tbody.innerHTML = users.map(user => `
+        <tr>
+            <td>${user.username}</td>
+            <td>${user.full_name}</td>
+            <td>${user.email}</td>
+            <td>${user.department_name || 'None'}</td>
+            <td><span class="badge badge-${user.role === 'admin' ? 'danger' : user.role === 'manager' ? 'warning' : 'info'}">${user.role.charAt(0).toUpperCase() + user.role.slice(1)}</span></td>
+            <td><span class="badge badge-${user.status === 'active' ? 'success' : 'secondary'}">${user.status.charAt(0).toUpperCase() + user.status.slice(1)}</span></td>
+            <td>
+                <button class="btn btn-small btn-primary" onclick="editUser(${user.id})">Edit</button>
+                <button class="btn btn-small btn-danger" onclick="deleteUser(${user.id})">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function openUserModal(user = null) {
+    const modal = document.getElementById('userModal');
+    const title = document.getElementById('userModalTitle');
+    const form = document.getElementById('userForm');
+    form.reset();
+    
+    // Load departments if not already loaded
+    if (state.departments.length === 0) {
+        loadDepartments();
+    }
+    
+    if (user) {
+        title.textContent = 'Edit User';
+        document.getElementById('userId').value = user.id;
+        document.getElementById('userName').value = user.username;
+        document.getElementById('userName').disabled = true;
+        document.getElementById('userFullName').value = user.full_name;
+        document.getElementById('userEmail').value = user.email;
+        document.getElementById('userRole').value = user.role;
+        document.getElementById('userDepartment').value = user.department_id || '';
+        document.getElementById('userStatus').value = user.status;
+        document.querySelector('label[for="userPassword"]').textContent = 'Password (leave blank to keep current)';
+    } else {
+        title.textContent = 'Add User';
+        document.getElementById('userId').value = '';
+        document.getElementById('userName').disabled = false;
+        document.getElementById('userDepartment').value = '';
+        document.querySelector('label[for="userPassword"]').textContent = 'Password *';
+    }
+    modal.classList.add('active');
+}
+
+function closeUserModal() { document.getElementById('userModal').classList.remove('active'); }
+
+async function editUser(id) {
+    try {
+        const response = await fetch(`${API_BASE}/users.php?id=${id}`, { credentials: 'same-origin' });
+        const result = await response.json();
+        if (result.success) openUserModal(result.data);
+    } catch (e) { console.error('Get user error:', e); showToast('Error loading user', 'error'); }
+}
+
+async function handleUserSubmit(e) {
+    e.preventDefault();
+    const id = document.getElementById('userId').value;
+    const password = document.getElementById('userPassword').value;
+
+    if (!id && !password) {
+        showToast('Password is required for new users', 'error');
+        return;
+    }
+
+    const data = {
+        username: document.getElementById('userName').value,
+        full_name: document.getElementById('userFullName').value,
+        email: document.getElementById('userEmail').value,
+        role: document.getElementById('userRole').value,
+        department_id: document.getElementById('userDepartment').value || null,
+        status: document.getElementById('userStatus').value
+    };
+
+    if (password) data.password = password;
+    if (id) data.id = id;
+
+    try {
+        const response = await fetch(`${API_BASE}/users.php`, { 
             method: id ? 'PUT' : 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
             body: JSON.stringify(data) 
@@ -1079,30 +1051,30 @@ async function handleSupplierSubmit(e) {
         const result = await response.json();
         if (result.success) { 
             showToast(result.message, 'success'); 
-            closeSupplierModal(); 
-            loadSuppliers(); 
+            closeUserModal(); 
+            loadUsers(); 
         }
-        else showToast(result.error || 'Error saving supplier', 'error');
+        else showToast(result.error || 'Error saving user', 'error');
     } catch (e) { 
-        console.error('Save supplier error:', e); 
-        showToast('Error saving supplier', 'error'); 
+        console.error('Save user error:', e); 
+        showToast('Error saving user', 'error'); 
     }
 }
 
-async function deleteSupplier(id) {
-    if (!confirm('Are you sure you want to delete this supplier?')) return;
+async function deleteUser(id) {
+    if (!confirm('Are you sure you want to delete this user?')) return;
     try {
-        const response = await fetch(`${API_BASE}/suppliers.php`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+        const response = await fetch(`${API_BASE}/users.php`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }), credentials: 'same-origin' });
         const result = await response.json();
-        if (result.success) { showToast('Supplier deleted successfully', 'success'); loadSuppliers(); }
-        else showToast(result.error || 'Error deleting supplier', 'error');
-    } catch (e) { console.error('Delete supplier error:', e); showToast('Error deleting supplier', 'error'); }
+        if (result.success) { showToast('User deleted successfully', 'success'); loadUsers(); }
+        else showToast(result.error || 'Error deleting user', 'error');
+    } catch (e) { console.error('Delete user error:', e); showToast('Error deleting user', 'error'); }
 }
 
 async function handleSettingsSubmit(e) {
     e.preventDefault();
     const data = {};
-    ['company_name', 'company_address', 'company_phone', 'company_email', 'currency_symbol', 'low_stock_threshold', 'invoice_prefix'].forEach(key => {
+    ['company_name', 'company_address', 'company_phone', 'company_email', 'tax_rate', 'currency_symbol', 'low_stock_threshold', 'invoice_prefix'].forEach(key => {
         const el = document.getElementById('setting_' + key);
         if (el) data[key] = el.value;
     });
@@ -1138,6 +1110,21 @@ async function handleAdvancedSettingsSubmit(e) {
     } catch (e) { console.error('Save advanced settings error:', e); showToast('Error saving settings', 'error'); }
 }
 
+
+function showToast(message, type = 'success') {
+    const toast = document.getElementById('toast');
+    const toastMessage = document.getElementById('toastMessage');
+    toast.className = 'toast ' + type;
+    toastMessage.textContent = message;
+    toast.classList.add('active');
+    setTimeout(() => { toast.classList.remove('active'); }, 3000);
+}
+
+function formatNumber(num) { return parseFloat(num || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function formatDate(dateString) { const date = new Date(dateString); return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+function escapeHtml(text) { if (!text) return ''; const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
+function debounce(func, wait) { let timeout; return function executedFunction(...args) { const later = () => { clearTimeout(timeout); func(...args); }; clearTimeout(timeout); timeout = setTimeout(later, wait); }; }
+
 async function handleLogout() {
     try {
         const response = await fetch('/api/auth/logout.php', { method: 'POST' });
@@ -1154,301 +1141,68 @@ async function handleLogout() {
     }
 }
 
-
-function showToast(message, type = 'success') {
-    const toast = document.getElementById('toast');
-    const toastMessage = document.getElementById('toastMessage');
-    toast.className = 'toast ' + type;
-    toastMessage.textContent = message;
-    toast.classList.add('active');
-    setTimeout(() => { toast.classList.remove('active'); }, 3000);
-}
-
-function formatNumber(num) { return parseFloat(num || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-function formatDate(dateString) { const date = new Date(dateString); return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
-function escapeHtml(text) { if (!text) return ''; const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
-function debounce(func, wait) { let timeout; return function executedFunction(...args) { const later = () => { clearTimeout(timeout); func(...args); }; clearTimeout(timeout); timeout = setTimeout(later, wait); }; }
-
-async function loadChartData() {
-    try {
-        // Load sales trend data
-        const salesResponse = await fetch(`${API_BASE}/reports.php?type=sales&date_from=${getLastNDays(7)}&date_to=${getCurrentDate()}`);
-        const salesResult = await salesResponse.json();
-        
-        if (salesResult.success) {
-            renderSalesChart(salesResult.data.daily);
-        }
-        
-        // Load top products data
-        const topProductsResponse = await fetch(`${API_BASE}/reports.php?type=top_products&limit=5`);
-        const topProductsResult = await topProductsResponse.json();
-        
-        if (topProductsResult.success) {
-            renderTopProductsChart(topProductsResult.data);
-        }
-        
-        // Load inventory by category data
-        const inventoryResponse = await fetch(`${API_BASE}/reports.php?type=inventory`);
-        const inventoryResult = await inventoryResponse.json();
-        
-        if (inventoryResult.success) {
-            renderCategoryChart(inventoryResult.data.by_category);
-        }
-    } catch (e) {
-        console.error('Chart data error:', e);
+// Open session management modal
+function openSessionModal() {
+    const modal = document.getElementById('sessionModal');
+    if (modal) {
+        modal.classList.add('active');
+        // Refresh session data
+        setupSessionPanel();
     }
 }
 
-function renderSalesChart(data) {
-    if (!data || data.length === 0) {
-        document.getElementById('salesPoints').innerHTML = '<p class="empty-state">No sales data available</p>';
-        return;
-    }
-    
-    // Sort data by date
-    data.sort((a, b) => new Date(a.date) - new Date(b.date));
-    
-    // Get last 7 days
-    const last7Days = data.slice(-7);
-    
-    // Find max value for scaling
-    const maxValue = Math.max(...last7Days.map(d => d.total_sales));
-    
-    // Render points
-    const pointsContainer = document.getElementById('salesPoints');
-    const pathElement = document.getElementById('salesPath');
-    
-    pointsContainer.innerHTML = '';
-    
-    const points = [];
-    const pointElements = [];
-    
-    last7Days.forEach((day, index) => {
-        const x = (index / (last7Days.length - 1)) * 100;
-        const y = 100 - (day.total_sales / maxValue) * 80; // Leave some margin at top
-        
-        const point = document.createElement('div');
-        point.className = 'line-point';
-        point.style.left = `${x}%`;
-        point.style.top = `${y}%`;
-        point.title = `${day.date}: $${formatNumber(day.total_sales)}`;
-        
-        pointsContainer.appendChild(point);
-        points.push({x: x, y: y});
-        pointElements.push(point);
-    });
-    
-    // Draw line path
-    if (points.length > 1) {
-        let pathData = `M ${points[0].x} ${points[0].y}`;
-        for (let i = 1; i < points.length; i++) {
-            pathData += ` L ${points[i].x} ${points[i].y}`;
-        }
-        pathElement.setAttribute('viewBox', '0 0 100 100');
-        pathElement.setAttribute('preserveAspectRatio', 'none');
-        pathElement.innerHTML = `<path d="${pathData}" vector-effect="non-scaling-stroke"></path>`;
+// Close session management modal
+function closeSessionModal() {
+    const modal = document.getElementById('sessionModal');
+    if (modal) {
+        modal.classList.remove('active');
     }
 }
 
-function renderTopProductsChart(data) {
-    const container = document.getElementById('topProductsChart');
-    
-    if (!data || data.length === 0) {
-        container.innerHTML = '<p class="empty-state">No product data available</p>';
-        return;
+// Load departments
+async function loadDepartments() {
+    // This is just a placeholder - actual implementation is in departments.js
+    console.log('Loading departments...');
+}
+
+// Load audit logs (placeholder - actual implementation in departments.js)
+async function loadAuditLogs() {
+    // This is just a placeholder - actual implementation is in departments.js
+    console.log('Loading audit logs...');
+}
+
+// Update the loadPageData function to include departments and audit logs
+async function loadPageData(pageName) {
+    switch (pageName) {
+        case 'products':
+            await loadProducts();
+            break;
+        case 'categories':
+            await loadCategories();
+            break;
+        case 'customers':
+            await loadCustomers();
+            break;
+        case 'suppliers':
+            await loadSuppliers();
+            break;
+        case 'users':
+            await loadUsers();
+            break;
+        case 'departments':
+            // Departments are loaded by departments.js
+            break;
+        case 'audit-logs':
+            // Audit logs are loaded by departments.js
+            break;
+        case 'reports':
+            // Report data is loaded on demand
+            break;
+        case 'transactions':
+            await loadTransactions();
+            break;
+        case 'credit':
+            await loadCreditSales();
+            break;
     }
-    
-    // Sort by total sold and take top 5
-    const topProducts = data.slice(0, 5);
-    
-    // Find max value for scaling
-    const maxValue = Math.max(...topProducts.map(p => p.total_sold));
-    
-    container.innerHTML = '';
-    
-    topProducts.forEach(product => {
-        const heightPercent = (product.total_sold / maxValue) * 80 + 10; // Minimum 10% height
-        
-        const bar = document.createElement('div');
-        bar.className = 'bar';
-        bar.style.height = `${heightPercent}%`;
-        bar.title = `${product.name}: ${product.total_sold} units sold`;
-        
-        const value = document.createElement('div');
-        value.className = 'bar-value';
-        value.textContent = product.total_sold;
-        
-        const label = document.createElement('div');
-        label.className = 'bar-label';
-        label.textContent = product.name.length > 10 ? product.name.substring(0, 10) + '...' : product.name;
-        
-        bar.appendChild(value);
-        bar.appendChild(label);
-        container.appendChild(bar);
-    });
-}
-
-function renderCategoryChart(data) {
-    const pieContainer = document.getElementById('categoryChart');
-    const legendContainer = document.getElementById('categoryLegend');
-    const totalElement = document.getElementById('categoryTotal');
-    
-    if (!data || data.length === 0) {
-        pieContainer.innerHTML = '<p class="empty-state">No category data available</p>';
-        legendContainer.innerHTML = '';
-        totalElement.textContent = '0 Items';
-        return;
-    }
-    
-    // Calculate total items
-    const totalItems = data.reduce((sum, category) => sum + parseInt(category.total_quantity), 0);
-    totalElement.textContent = `${totalItems} Items`;
-    
-    // Filter out categories with 0 items and sort by value
-    const categoriesWithData = data.filter(c => parseInt(c.total_quantity) > 0)
-                                  .sort((a, b) => parseInt(b.total_quantity) - parseInt(a.total_quantity));
-    
-    if (categoriesWithData.length === 0) {
-        pieContainer.innerHTML = '<p class="empty-state">No inventory data available</p>';
-        legendContainer.innerHTML = '';
-        return;
-    }
-    
-    // Clear containers
-    pieContainer.innerHTML = '';
-    legendContainer.innerHTML = '';
-    pieContainer.appendChild(totalElement);
-    
-    // Define colors
-    const colors = ['#6366f1', '#818cf8', '#4f46e5', '#a5b4fc', '#c7d2fe'];
-    
-    // Calculate angles for pie segments
-    let currentAngle = 0;
-    
-    categoriesWithData.forEach((category, index) => {
-        const percentage = (parseInt(category.total_quantity) / totalItems) * 100;
-        const angle = (percentage / 100) * 360;
-        
-        // Create pie segment
-        const segment = document.createElement('div');
-        segment.className = 'pie-segment';
-        segment.style.backgroundColor = colors[index % colors.length];
-        segment.style.transform = `rotate(${currentAngle}deg)`;
-        segment.style.clipPath = `polygon(50% 50%, 50% 0%, ${100 - 50 * Math.cos((angle * Math.PI) / 180)}% ${50 - 50 * Math.sin((angle * Math.PI) / 180)}%)`;
-        segment.title = `${category.name}: ${category.total_quantity} items (${percentage.toFixed(1)}%)`;
-        
-        pieContainer.appendChild(segment);
-        
-        // Create legend item
-        const legendItem = document.createElement('div');
-        legendItem.className = 'legend-item';
-        
-        const legendColor = document.createElement('div');
-        legendColor.className = 'legend-color';
-        legendColor.style.backgroundColor = colors[index % colors.length];
-        
-        const legendText = document.createElement('span');
-        legendText.textContent = `${category.name}: ${category.total_quantity} (${percentage.toFixed(1)}%)`;
-        
-        legendItem.appendChild(legendColor);
-        legendItem.appendChild(legendText);
-        legendContainer.appendChild(legendItem);
-        
-        currentAngle += angle;
-    });
-}
-
-// Helper functions
-function getLastNDays(n) {
-    const date = new Date();
-    date.setDate(date.getDate() - n);
-    return date.toISOString().split('T')[0];
-}
-
-function getCurrentDate() {
-    return new Date().toISOString().split('T')[0];
-}
-
-// Purchases functions
-async function loadPurchases() {
-    try {
-        const dateFrom = document.getElementById('purchaseDateFrom').value;
-        const dateTo = document.getElementById('purchaseDateTo').value;
-        const supplierId = document.getElementById('purchaseSupplierFilter').value;
-        
-        let url = `${API_BASE}/purchases.php?`;
-        if (dateFrom) url += `date_from=${dateFrom}&`;
-        if (dateTo) url += `date_to=${dateTo}&`;
-        if (supplierId) url += `supplier_id=${supplierId}&`;
-        
-        const response = await fetch(url);
-        const result = await response.json();
-        
-        if (result.success) {
-            renderPurchases(result.data);
-            // Update supplier filter options
-            updatePurchaseSupplierSelects();
-        }
-    } catch (e) { 
-        console.error('Purchases error:', e); 
-        showToast('Error loading purchases', 'error'); 
-    }
-}
-
-function renderPurchases(purchases) {
-    const tbody = document.getElementById('purchasesBody');
-    
-    if (!purchases || purchases.length === 0) { 
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No purchases found</td></tr>';
-        return;
-    }
-    
-    tbody.innerHTML = purchases.map(purchase => `
-        <tr>
-            <td>${escapeHtml(purchase.invoice_number)}</td>
-            <td>${escapeHtml(purchase.supplier_name || 'Unknown Supplier')}</td>
-            <td>$${formatNumber(purchase.total)}</td>
-            <td>
-                <span class="status-badge ${purchase.payment_status}">
-                    ${purchase.payment_status.charAt(0).toUpperCase() + purchase.payment_status.slice(1)}
-                </span>
-            </td>
-            <td>${formatDate(purchase.created_at)}</td>
-            <td>
-                <div class="action-buttons">
-                    <button class="btn btn-secondary btn-sm" onclick="viewPurchase(${purchase.id})">View</button>
-                    <button class="btn btn-icon btn-secondary btn-sm" onclick="deletePurchase(${purchase.id})" title="Delete">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                            <polyline points="3 6 5 6 21 6"/>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                        </svg>
-                    </button>
-                </div>
-            </td>
-        </tr>
-    `).join('');
-}
-
-function updatePurchaseSupplierSelects() {
-    // This will be called to update the supplier filter dropdown
-    const options = '<option value="">All Suppliers</option>' + state.suppliers.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
-    const el = document.getElementById('purchaseSupplierFilter');
-    if (el) el.innerHTML = options;
-}
-
-function openPurchaseModal() {
-    // TODO: Implement purchase modal
-    alert('Purchase functionality coming soon!');
-}
-
-function viewPurchase(id) {
-    // TODO: Implement view purchase details
-    alert('View purchase details functionality coming soon!');
-}
-
-function deletePurchase(id) {
-    if (!confirm('Are you sure you want to delete this purchase?')) return;
-    
-    // TODO: Implement delete purchase
-    alert('Delete purchase functionality coming soon!');
 }

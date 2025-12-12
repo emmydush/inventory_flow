@@ -98,6 +98,60 @@ body {
 .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
 
 .sidebar-footer { margin-top: auto; padding-top: 1rem; }
+
+.user-profile-sidebar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius-sm);
+    margin-bottom: 1rem;
+}
+
+.user-avatar-sidebar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 1rem;
+    position: relative;
+}
+
+.user-avatar-initials {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.user-info-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.user-name-sidebar {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.user-role-sidebar {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
 .sidebar .stat-card { padding: 0.75rem; }
 .sidebar .stat-header { margin-bottom: 0.5rem; }
 .sidebar .stat-info h3 { font-size: 0.8rem; margin: 0; }

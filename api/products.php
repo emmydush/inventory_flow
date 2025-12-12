@@ -32,7 +32,7 @@ if (!isset($_SESSION['user_id'])) {
 // Get user information for data isolation
 $userInfo = [];
 try {
-    $stmt = $conn->prepare("SELECT u.role, u.department_id, d.name as department_name 
+    $stmt = $conn->prepare("SELECT u.role, u.department_id, u.organization_id, d.name as department_name 
                            FROM users u 
                            LEFT JOIN departments d ON u.department_id = d.id 
                            WHERE u.id = :user_id AND u.status = 'active'");
@@ -86,8 +86,8 @@ function getProducts($conn, $userInfo) {
                 END as ownership_level
                 FROM products p 
                 LEFT JOIN categories c ON p.category_id = c.id 
-                WHERE 1=1";
-        $params = [':current_user_id' => $userInfo['id']];
+                WHERE p.organization_id = :organization_id";
+        $params = [':current_user_id' => $userInfo['id'], ':organization_id' => $userInfo['organization_id']];
         
         // Apply data isolation based on user permissions
         if ($userInfo['role'] !== 'admin') {
@@ -185,8 +185,8 @@ function getProduct($conn, $id) {
         }
         
         // First get the product
-        $stmt = $conn->prepare("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.id = ?");
-        $stmt->execute([$id]);
+        $stmt = $conn->prepare("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.id = ? AND p.organization_id = ?");
+        $stmt->execute([$id, $userInfo['organization_id']]);
         $product = $stmt->fetch();
         
         if (!$product) {
@@ -264,8 +264,8 @@ function createProduct($conn) {
         $data = json_decode(file_get_contents('php://input'), true);
         
         // Add created_by field to track ownership
-        $stmt = $conn->prepare("INSERT INTO products (sku, name, description, category_id, quantity, price, cost_price, min_stock, created_by) 
-                                VALUES (:sku, :name, :description, :category_id, :quantity, :price, :cost_price, :min_stock, :created_by)");
+        $stmt = $conn->prepare("INSERT INTO products (sku, name, description, category_id, quantity, price, cost_price, min_stock, created_by, organization_id) 
+                                VALUES (:sku, :name, :description, :category_id, :quantity, :price, :cost_price, :min_stock, :created_by, :organization_id)");
         $stmt->execute([
             ':sku' => $data['sku'],
             ':name' => $data['name'],
@@ -275,7 +275,8 @@ function createProduct($conn) {
             ':price' => $data['price'] ?? 0,
             ':cost_price' => $data['cost_price'] ?? 0,
             ':min_stock' => $data['min_stock'] ?? 10,
-            ':created_by' => $_SESSION['user_id']
+            ':created_by' => $_SESSION['user_id'],
+            ':organization_id' => $_SESSION['organization_id']
         ]);
         
         $productId = $conn->lastInsertId();
@@ -315,7 +316,7 @@ function updateProduct($conn) {
         }
         
         // Get user information
-        $stmt = $conn->prepare("SELECT u.role, u.department_id FROM users u WHERE u.id = ? AND u.status = 'active'");
+        $stmt = $conn->prepare("SELECT u.role, u.department_id, u.organization_id FROM users u WHERE u.id = ? AND u.status = 'active'");
         $stmt->execute([$_SESSION['user_id']]);
         $userInfo = $stmt->fetch();
         
@@ -328,8 +329,8 @@ function updateProduct($conn) {
         // Check if user has permission to update this product
         if ($userInfo['role'] !== 'admin') {
             // First get the product to check ownership
-            $checkStmt = $conn->prepare("SELECT created_by FROM products WHERE id = ?");
-            $checkStmt->execute([$data['id']]);
+            $checkStmt = $conn->prepare("SELECT created_by FROM products WHERE id = ? AND organization_id = ?");
+            $checkStmt->execute([$data['id'], $userInfo['organization_id']]);
             $product = $checkStmt->fetch();
             
             if (!$product) {
@@ -440,7 +441,7 @@ function deleteProduct($conn) {
         }
         
         // Get user information
-        $stmt = $conn->prepare("SELECT u.role, u.department_id FROM users u WHERE u.id = ? AND u.status = 'active'");
+        $stmt = $conn->prepare("SELECT u.role, u.department_id, u.organization_id FROM users u WHERE u.id = ? AND u.status = 'active'");
         $stmt->execute([$_SESSION['user_id']]);
         $userInfo = $stmt->fetch();
         
@@ -453,8 +454,8 @@ function deleteProduct($conn) {
         // Check if user has permission to delete this product
         if ($userInfo['role'] !== 'admin') {
             // First get the product to check ownership
-            $checkStmt = $conn->prepare("SELECT created_by FROM products WHERE id = ?");
-            $checkStmt->execute([$data['id']]);
+            $checkStmt = $conn->prepare("SELECT created_by FROM products WHERE id = ? AND organization_id = ?");
+            $checkStmt->execute([$data['id'], $userInfo['organization_id']]);
             $product = $checkStmt->fetch();
             
             if (!$product) {
@@ -534,8 +535,8 @@ function deleteProduct($conn) {
             }
         }
         
-        $stmt = $conn->prepare("DELETE FROM products WHERE id = ?");
-        $stmt->execute([$data['id']]);
+        $stmt = $conn->prepare("DELETE FROM products WHERE id = ? AND organization_id = ?");
+        $stmt->execute([$data['id'], $userInfo['organization_id']]);
         
         // Log the activity
         $activityStmt = $conn->prepare("INSERT INTO activity_logs (user_id, action, entity_type, entity_id, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)");

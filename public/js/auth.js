@@ -84,6 +84,7 @@ function setupFormSubmissions() {
                 headers: {
                     'Content-Type': 'application/json'
                 },
+                credentials: 'include',  // Ensure credentials are sent with the request
                 body: JSON.stringify({
                     username: username,
                     password: password
