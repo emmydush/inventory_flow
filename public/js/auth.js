@@ -1,7 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     // On login page, we don't check session automatically to prevent flickering
     // Session checking is handled by form submissions
-    setupAuthTabs();
     setupFormSubmissions();
     setupSocialButtons();
 });
@@ -12,49 +11,7 @@ let redirecting = false;
 // Removed session checking on login page to prevent flickering
 // Session status is determined by login form submission
 
-function setupAuthTabs() {
-    const tabs = document.querySelectorAll('.auth-tab');
-    const forms = document.querySelectorAll('.auth-form');
-    
-    // Simple function to switch to a specific form
-    function switchToForm(formType) {
-        // Update active tab
-        tabs.forEach(tab => {
-            if (tab.dataset.tab === formType) {
-                tab.classList.add('active');
-            } else {
-                tab.classList.remove('active');
-            }
-        });
-        
-        // Show the correct form
-        forms.forEach(form => {
-            if (form.id === formType + 'Form') {
-                form.classList.add('active');
-            } else {
-                form.classList.remove('active');
-            }
-        });
-    }
-    
-    // Tab click handlers
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            const tabName = tab.dataset.tab;
-            switchToForm(tabName);
-        });
-    });
-    
-    // Handle switch links (the "Sign up" and "Sign in" links)
-    const switchAuthLinks = document.querySelectorAll('.switch-auth');
-    switchAuthLinks.forEach(link => {
-        link.addEventListener('click', (e) => {
-            e.preventDefault();
-            const tabName = link.dataset.tab;
-            switchToForm(tabName);
-        });
-    });
-}
+
 
 function setupFormSubmissions() {
     // Login form submission
@@ -94,12 +51,15 @@ function setupFormSubmissions() {
             const result = await response.json();
 
             if (result.success) {
-                const loginButton = document.querySelector('#loginForm .btn');
-                loginButton.style.background = 'var(--success)';
+                // Fix the button selector - use the correct ID
+                const loginButton = document.querySelector('#loginForm .btn-submit');
+                if (loginButton) {
+                    loginButton.style.background = 'var(--success)';
+                }
                 showToast('Login successful! Redirecting...', 'success');
 
                 setTimeout(() => {
-                    window.location.href = '/';
+                    window.location.href = '/dashboard.php';
                 }, 1500);
             } else {
                 addFieldError('loginPassword', result.error || 'Login failed');
@@ -107,7 +67,7 @@ function setupFormSubmissions() {
             }
         } catch (error) {
             console.error('Login error:', error);
-            showToast('An error occurred during login', 'error');
+            showToast('An error occurred during login: ' + error.message, 'error');
         } finally {
             showLoading(false, 'login');
         }
@@ -246,22 +206,27 @@ function setupSocialButtons() {
 }
 
 function showLoading(show, formType) {
-    const loginButton = document.querySelector('#loginForm .btn');
-    const registerButton = document.querySelector('#registerForm .btn');
+    // Fix button selectors - use the correct class
+    const loginButton = document.querySelector('#loginForm .btn-submit');
+    const registerButton = document.querySelector('#registerForm .btn-submit');
     
     if (show) {
-        if (formType === 'login') {
+        if (formType === 'login' && loginButton) {
             loginButton.innerHTML = '<div class="spinner"></div> Signing In...';
             loginButton.disabled = true;
-        } else {
+        } else if (formType === 'register' && registerButton) {
             registerButton.innerHTML = '<div class="spinner"></div> Creating Account...';
             registerButton.disabled = true;
         }
     } else {
-        loginButton.innerHTML = 'Sign In';
-        loginButton.disabled = false;
-        registerButton.innerHTML = 'Create Account';
-        registerButton.disabled = false;
+        if (loginButton) {
+            loginButton.innerHTML = 'Sign In';
+            loginButton.disabled = false;
+        }
+        if (registerButton) {
+            registerButton.innerHTML = 'Create Account';
+            registerButton.disabled = false;
+        }
     }
 }
 
@@ -269,16 +234,19 @@ function showToast(message, type = 'success') {
     const toast = document.getElementById('toast');
     const toastMessage = document.getElementById('toastMessage');
     
+    // Check if elements exist before trying to modify them
+    if (!toast || !toastMessage) {
+        console.error('Toast elements not found in DOM');
+        return;
+    }
+    
     toast.className = 'toast ' + type;
     toastMessage.textContent = message;
     toast.classList.add('active');
     
-    // Add animation to toast
-    toast.style.animation = 'fadeInOut 3s forwards';
-    
     setTimeout(() => {
         toast.classList.remove('active');
-        toast.style.animation = '';
+
     }, 3000);
 }
 
@@ -352,28 +320,12 @@ style.innerHTML = `
         box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
     }
 
-    @keyframes pulse {
-        0% {
-            transform: scale(1);
-            box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4);
-        }
-        70% {
-            transform: scale(1.05);
-            box-shadow: 0 0 0 10px rgba(255, 255, 255, 0);
-        }
-        100% {
-            transform: scale(1);
-            box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
-        }
-    }
-
-    @keyframes tabSlide {
-        from {
-            transform: scaleX(0);
-        }
-        to {
-            transform: scaleX(1);
-        }
+    /* Add fadeInOut animation that was referenced */
+    @keyframes fadeInOut {
+        0% { opacity: 0; }
+        20% { opacity: 1; }
+        80% { opacity: 1; }
+        100% { opacity: 0; }
     }
 `;
 document.head.appendChild(style);

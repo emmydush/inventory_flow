@@ -1,9 +1,33 @@
+<?php
+require_once 'config/database.php';
+
+session_start();
+
+// Check if user is authenticated
+$isAuthenticated = isset($_SESSION['user_id']);
+
+// Redirect to login if not authenticated
+if (!$isAuthenticated) {
+    header('Location: /login.php');
+    exit;
+}
+
+// Get user data from session
+$user_id = $_SESSION['user_id'];
+$username = $_SESSION['username'];
+$email = $_SESSION['email'];
+$full_name = $_SESSION['full_name'];
+$role = $_SESSION['role'];
+$organization_id = $_SESSION['organization_id'];
+$organization_name = $_SESSION['organization_name'];
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InventoryPro</title>
+    <title>DUSH teck</title>
     <link rel="stylesheet" href="css/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -12,9 +36,9 @@
         <nav class="sidebar">
             <div class="logo">
                 <div class="logo-icon">
-                    <img src="/public/images/logo2.png" alt="InventoryPro Logo" style="height: 32px; width: auto;">
+                    <img src="/public/images/logo2.png" alt="DUSH teck Logo" style="height: 32px; width: auto;">
                 </div>
-                <span>InventoryPro</span>
+                <span>DUSH teck</span>
             </div>
             <ul class="nav-menu">
                 <li class="nav-item active" data-page="dashboard">
@@ -128,9 +152,9 @@
                     <!-- User Profile Dropdown -->
                     <div class="user-dropdown" id="userDropdown">
                         <div class="user-info">
-                            <span class="user-name" id="topBarUserName">Loading...</span>
+                            <span class="user-name" id="topBarUserName"><?php echo htmlspecialchars($full_name); ?></span>
                             <div class="user-avatar">
-                                <span class="avatar-initials" id="userAvatarInitials">...</span>
+                                <span class="avatar-initials" id="userAvatarInitials"><?php echo strtoupper(substr($full_name, 0, 2)); ?></span>
                             </div>
                         </div>
                         <div class="dropdown-menu" id="userDropdownMenu">
@@ -168,7 +192,7 @@
                 <!-- Dashboard Page -->
                 <section class="page active" id="dashboardPage">
                     <div class="welcome-message">
-                        <h2>Welcome back, <span id="welcomeUserName">Loading...</span>!</h2>
+                        <h2>Welcome back, <span id="welcomeUserName"><?php echo htmlspecialchars($full_name); ?></span>!</h2>
                         <p>Great to see you again. Here's what's happening with your inventory today.</p>
                     </div>
                     <div class="stats-grid">

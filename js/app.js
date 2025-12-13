@@ -1132,7 +1132,7 @@ async function handleLogout() {
         if (result.success) {
             showToast('Logout successful', 'success');
             setTimeout(() => {
-                window.location.href = '/public/login.html';
+                window.location.href = '/index.php';
             }, 1000);
         }
     } catch (error) {

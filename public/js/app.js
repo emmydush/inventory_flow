@@ -369,8 +369,26 @@ async function loadProducts() {
         if (search) url += `search=${encodeURIComponent(search)}`;
         const response = await fetch(url);
         const result = await response.json();
-        if (result.success) { state.products = result.data; renderProducts(); }
-    } catch (e) { console.error('Products error:', e); showToast('Error loading products', 'error'); }
+        
+        // Check if user is authenticated
+        if (response.status === 401) {
+            showToast('Session expired. Please log in again.', 'error');
+            // Redirect to landing page
+            window.location.href = '/index.php';
+            return;
+        }
+        
+        if (result.success) { 
+            state.products = result.data; 
+            renderProducts(); 
+        } else {
+            // Show specific error message from server
+            showToast(result.error || 'Error loading products', 'error');
+        }
+    } catch (e) { 
+        console.error('Products error:', e); 
+        showToast('Error loading products: ' + e.message, 'error'); 
+    }
 }
 
 function renderProducts() {
@@ -429,12 +447,22 @@ async function loadCustomers() {
         const search = document.getElementById('customerSearch')?.value || '';
         const response = await fetch(`${API_BASE}/customers.php${search ? '?search=' + encodeURIComponent(search) : ''}`);
         const result = await response.json();
+        
+        // Check if user is authenticated
+        if (response.status === 401) {
+            showToast('Session expired. Please log in again.', 'error');
+            window.location.href = '/index.php'
+            return;
+        }
+        
         if (result.success) {
             state.customers = result.data;
             updateCustomerSelects();
             if (state.currentPage === 'customers') renderCustomers();
+        } else {
+            showToast(result.error || 'Error loading customers', 'error');
         }
-    } catch (e) { console.error('Customers error:', e); }
+    } catch (e) { console.error('Customers error:', e); showToast('Error loading customers: ' + e.message, 'error'); }
 }
 
 function updateCustomerSelects() {
@@ -472,8 +500,19 @@ async function loadSuppliers() {
         const search = document.getElementById('supplierSearch')?.value || '';
         const response = await fetch(`${API_BASE}/suppliers.php${search ? '?search=' + encodeURIComponent(search) : ''}`);
         const result = await response.json();
+        
+        // Check if user is authenticated
+        if (response.status === 401) {
+            showToast('Session expired. Please log in again.', 'error');
+            window.location.href = '/index.php'
+            return;
+        }
+        
         if (result.success && state.currentPage === 'suppliers') renderSuppliers(result.data);
-    } catch (e) { console.error('Suppliers error:', e); }
+        else if (!result.success) {
+            showToast(result.error || 'Error loading suppliers', 'error');
+        }
+    } catch (e) { console.error('Suppliers error:', e); showToast('Error loading suppliers: ' + e.message, 'error'); }
 }
 
 function renderSuppliers(suppliers) {
@@ -509,8 +548,19 @@ async function loadPosProducts() {
         if (search) url += `search=${encodeURIComponent(search)}`;
         const response = await fetch(url);
         const result = await response.json();
+        
+        // Check if user is authenticated
+        if (response.status === 401) {
+            showToast('Session expired. Please log in again.', 'error');
+            window.location.href = '/index.php'
+            return;
+        }
+        
         if (result.success) renderPosProducts(result.data);
-    } catch (e) { console.error('POS products error:', e); }
+        else {
+            showToast(result.error || 'Error loading products', 'error');
+        }
+    } catch (e) { console.error('POS products error:', e); showToast('Error loading products: ' + e.message, 'error'); }
 }
 
 function renderPosProducts(products) {
@@ -1145,7 +1195,7 @@ async function handleLogout() {
         if (result.success) {
             showToast('Logout successful', 'success');
             setTimeout(() => {
-                window.location.href = '/public/login.html';
+                window.location.href = '/index.php';
             }, 1000);
         }
     } catch (error) {
